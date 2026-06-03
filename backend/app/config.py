@@ -35,10 +35,34 @@ class Settings(BaseSettings):
     virustotal_key: str = ""
     anthropic_api_key: str = ""
 
+    # --- Durable abuse store (Upstash Redis REST; serverless-friendly) ---
+    # Accept both the Upstash integration's vars and the legacy Vercel KV vars.
+    upstash_redis_rest_url: str = ""
+    upstash_redis_rest_token: str = ""
+    kv_rest_api_url: str = ""
+    kv_rest_api_token: str = ""
+
+    # Safety interlock: the AI layer only activates when a durable budget store
+    # is configured (so the AI bill can't be exposed on serverless without a
+    # working cap). Set true for single-process local dev to use AI without Redis.
+    ai_allow_without_durable_budget: bool = False
+
     # --- Server ---
     port: int = 8000
     # Origins allowed to call the API (the Vite dev server by default).
     cors_allow_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @property
+    def redis_rest_url(self) -> str:
+        return self.upstash_redis_rest_url or self.kv_rest_api_url
+
+    @property
+    def redis_rest_token(self) -> str:
+        return self.upstash_redis_rest_token or self.kv_rest_api_token
+
+    @property
+    def redis_enabled(self) -> bool:
+        return bool(self.redis_rest_url and self.redis_rest_token)
 
     @property
     def google_safe_browsing_enabled(self) -> bool:

@@ -39,6 +39,11 @@ A running log of significant choices. Claude Code: append a dated entry whenever
 **Why:** CLAUDE.md/PRICING.md require a frictionless account-free free tier that can't expose the AI bill to scripted abuse. Gating reads from `Features` everywhere, so flipping a tier unlocks paid features with no call-site changes. In-memory is sufficient for v1's single-instance stateless deploy.
 **Consequences:** Counters reset on restart and don't share across workers — a shared store (Redis) is the scaling upgrade, behind the same `AbuseGuard` interface. Real accounts replace `resolve_tier` only. All thresholds live in `config.py`.
 
+### 2026-06-03 — Durable abuse store + AI safety interlock (for serverless)
+**Decision:** Abuse counters sit behind an `AbuseStore` interface with two implementations: `MemoryAbuseStore` (per-process; local/tests) and `RedisAbuseStore` (Upstash Redis over its REST API; works on Vercel). All limits are fixed-window counters (`INCR` + `EXPIRE NX`, one pipelined round trip). `AbuseGuard` is now async and selects the store from settings (`redis_enabled` when `UPSTASH_REDIS_REST_*` / legacy `KV_REST_API_*` are present). Failure policy: rate-limit and daily-cap **fail open** (don't block users on a store outage); the AI budget **fails closed** (protect the bill). **Interlock:** the AI layer only activates when `ai_enabled` AND a durable store is configured (or `AI_ALLOW_WITHOUT_DURABLE_BUDGET=true` for single-process local dev) — so AI can't be exposed on serverless without an enforceable cap, regardless of env-var ordering.
+**Why:** In-memory counters don't hold across serverless invocations, so the global AI-call cap (the thing protecting the Anthropic bill) was unenforceable on Vercel. A shared store fixes that; the interlock makes enabling AI safe by construction. Upstash REST is used (not a Redis TCP client) because it's stateless/HTTP — ideal for serverless cold starts.
+**Consequences:** `/api/health` now reports `durable_limits` and `ai_active`. Enabling AI in production = provision Upstash (Vercel Marketplace injects the env vars) → AI activates automatically on next deploy. The `anthropic` SDK is back in `requirements.txt`. Sliding-window rate limiting became fixed-window (simpler/correct over REST).
+
 ## Template
 
 ### [DATE] — Title

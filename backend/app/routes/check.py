@@ -40,16 +40,19 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
     features = features_for(tier)
 
     # Short-window per-IP rate limit (all tiers) — friendly message, not a bare 429.
-    if not guard.allow_request(ip):
+    if not await guard.allow_request(ip):
         raise HTTPException(status_code=429, detail=_RATE_MSG)
 
     # Daily free-tier cap (paid/business have unlimited checks).
-    if not features.unlimited_checks and not guard.allow_daily_check(ip):
+    if not features.unlimited_checks and not await guard.allow_daily_check(ip):
         raise HTTPException(status_code=429, detail=_DAILY_MSG)
 
-    # Global daily AI budget: once exhausted, fall back to deterministic-only so
-    # scripted abuse can't run up the AI bill. Only consume when AI is usable.
-    allow_ai = settings.ai_enabled and guard.try_consume_ai_budget()
+    # AI safety interlock: only run AI when there's a place to enforce the budget.
+    # On serverless the in-memory counter can't hold, so AI requires a durable
+    # store (Redis) unless explicitly allowed for single-process local dev. Then
+    # consume from the global daily AI budget; once exhausted, deterministic-only.
+    ai_safe = guard.is_durable or settings.ai_allow_without_durable_budget
+    allow_ai = settings.ai_enabled and ai_safe and await guard.try_consume_ai_budget()
 
     try:
         return await analyze(

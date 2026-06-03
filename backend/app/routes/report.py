@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["report"])
 
 @router.post("/report", response_model=ScamReportAck)
 async def report(request: ScamReportRequest, http_request: Request) -> ScamReportAck:
-    if not guard.allow_request(_client_ip(http_request)):
+    if not await guard.allow_request(_client_ip(http_request)):
         raise HTTPException(status_code=429, detail=_RATE_MSG)
     try:
         return await submit_report(request)

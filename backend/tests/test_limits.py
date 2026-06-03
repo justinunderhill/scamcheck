@@ -4,10 +4,13 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+import httpx
+import respx
+
 from app import config
 from app.main import app
 from app.services import heuristics
-from app.services.limits import AbuseGuard, guard
+from app.services.limits import AbuseGuard, MemoryAbuseStore, RedisAbuseStore, guard
 
 client = TestClient(app)
 
@@ -24,36 +27,78 @@ def stub_heuristics_network(monkeypatch):
 
 # --- AbuseGuard unit -----------------------------------------------------
 
-def test_rate_limit_sliding_window(monkeypatch):
+async def test_rate_limit_blocks_over_threshold(monkeypatch):
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 3)
-    monkeypatch.setattr(config, "RATE_LIMIT_WINDOW_SECONDS", 60)
-    g = AbuseGuard()
-    assert all(g.allow_request("1.2.3.4", now=1000.0 + i) for i in range(3))
-    assert g.allow_request("1.2.3.4", now=1003.0) is False  # 4th in window
-    assert g.allow_request("1.2.3.4", now=1100.0) is True   # window has slid
+    g = AbuseGuard(MemoryAbuseStore())
+    # All within the same fixed window (same second).
+    assert all([await g.allow_request("1.2.3.4") for _ in range(3)])
+    assert await g.allow_request("1.2.3.4") is False  # 4th over the limit
 
 
-def test_rate_limit_is_per_ip(monkeypatch):
+async def test_rate_limit_is_per_ip(monkeypatch):
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 1)
-    g = AbuseGuard()
-    assert g.allow_request("a", now=1.0) is True
-    assert g.allow_request("a", now=1.0) is False
-    assert g.allow_request("b", now=1.0) is True  # different IP unaffected
+    g = AbuseGuard(MemoryAbuseStore())
+    assert await g.allow_request("a") is True
+    assert await g.allow_request("a") is False
+    assert await g.allow_request("b") is True  # different IP unaffected
 
 
-def test_daily_cap(monkeypatch):
+async def test_daily_cap(monkeypatch):
     monkeypatch.setattr(config, "FREE_TIER_CHECKS_PER_DAY", 2)
-    g = AbuseGuard()
-    assert g.allow_daily_check("ip") is True
-    assert g.allow_daily_check("ip") is True
-    assert g.allow_daily_check("ip") is False
+    g = AbuseGuard(MemoryAbuseStore())
+    assert await g.allow_daily_check("ip") is True
+    assert await g.allow_daily_check("ip") is True
+    assert await g.allow_daily_check("ip") is False
 
 
-def test_ai_budget(monkeypatch):
+async def test_ai_budget(monkeypatch):
     monkeypatch.setattr(config, "AI_DAILY_CALL_CAP", 1)
-    g = AbuseGuard()
-    assert g.try_consume_ai_budget() is True
-    assert g.try_consume_ai_budget() is False
+    g = AbuseGuard(MemoryAbuseStore())
+    assert await g.try_consume_ai_budget() is True
+    assert await g.try_consume_ai_budget() is False
+
+
+async def test_memory_store_expiry(monkeypatch):
+    import app.services.limits as limits
+
+    store = MemoryAbuseStore()
+    monkeypatch.setattr(limits.time, "time", lambda: 1000.0)
+    assert await store.incr("k", 60) == 1
+    assert await store.incr("k", 60) == 2
+    monkeypatch.setattr(limits.time, "time", lambda: 1100.0)  # past ttl
+    assert await store.incr("k", 60) == 1  # counter reset after expiry
+
+
+def test_memory_guard_is_not_durable():
+    assert AbuseGuard(MemoryAbuseStore()).is_durable is False
+    assert AbuseGuard(RedisAbuseStore("https://x", "t")).is_durable is True
+
+
+# --- RedisAbuseStore (Upstash REST, mocked) ------------------------------
+
+@respx.mock
+async def test_redis_store_incr_pipeline():
+    route = respx.post("https://redis.example/pipeline").mock(
+        return_value=httpx.Response(200, json=[{"result": 7}, {"result": 1}])
+    )
+    store = RedisAbuseStore("https://redis.example", "tok")
+    assert await store.incr("ai:2026-06-03", 86400) == 7
+    assert route.called
+
+
+async def test_ai_budget_fails_closed_on_store_error():
+    class BrokenStore:
+        async def incr(self, key, ttl_seconds):
+            raise RuntimeError("redis down")
+
+        def reset(self):
+            pass
+
+    g = AbuseGuard(BrokenStore())
+    # AI budget must fail CLOSED (protect the bill); rate/daily fail OPEN.
+    assert await g.try_consume_ai_budget() is False
+    assert await g.allow_request("ip") is True
+    assert await g.allow_daily_check("ip") is True
 
 
 # --- Route-level enforcement --------------------------------------------
@@ -94,6 +139,16 @@ def test_free_tier_ignores_message(monkeypatch):
     body = resp.json()
     assert "ai_message_analysis" not in body["sources_checked"]
     assert "ai_message_analysis" not in body["sources_unavailable"]
+
+
+def test_ai_interlock_off_without_durable_store(monkeypatch):
+    # Key present but no durable store + interlock not overridden -> AI stays off.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    config.get_settings.cache_clear()
+    guard.configure(MemoryAbuseStore())  # not durable
+    resp = client.post("/api/check", json={"url": "https://example.com"})
+    body = resp.json()
+    assert "ai" in body["sources_unavailable"]  # AI not active -> template summary
 
 
 def test_paid_tier_attempts_message_analysis(monkeypatch):

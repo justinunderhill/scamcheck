@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.routes import check_router, report_router
+from app.services.limits import guard
 
 settings = get_settings()
 
@@ -39,4 +40,9 @@ async def health() -> dict[str, object]:
             "virustotal": settings.virustotal_enabled,
             "ai": settings.ai_enabled,
         },
+        # Abuse-protection state. AI only activates when the budget is durable
+        # (or explicitly allowed for local dev).
+        "durable_limits": guard.is_durable,
+        "ai_active": settings.ai_enabled
+        and (guard.is_durable or settings.ai_allow_without_durable_budget),
     }
