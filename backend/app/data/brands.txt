@@ -1,0 +1,40 @@
+# Commonly impersonated brands, used for lookalike / typosquatting detection.
+# Lowercase, the brand token only (no TLD). One per line; '#' starts a comment.
+# Keep these distinctive — short common words cause false positives.
+amazon
+americanexpress
+apple
+bankofamerica
+binance
+chase
+citibank
+coinbase
+docusign
+dhl
+dropbox
+ebay
+facebook
+fedex
+google
+hmrc
+hsbc
+instagram
+irs
+linkedin
+mastercard
+metamask
+microsoft
+netflix
+outlook
+paypal
+royalmail
+santander
+steamcommunity
+tiktok
+ups
+usps
+verizon
+visa
+walmart
+wellsfargo
+whatsapp

@@ -1,0 +1,40 @@
+# TLDs disproportionately abused in phishing/scams (severity: low-medium).
+# Suffix only, no leading dot. One per line; '#' starts a comment.
+# A suspicious TLD alone is a weak signal — it compounds with other findings.
+bid
+cam
+cf
+click
+country
+cricket
+date
+download
+faith
+ga
+gdn
+gq
+icu
+kim
+link
+loan
+men
+ml
+mov
+online
+party
+quest
+racing
+review
+rest
+science
+stream
+support
+surf
+tk
+top
+trade
+webcam
+win
+work
+xyz
+zip
