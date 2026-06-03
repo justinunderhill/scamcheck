@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -25,9 +23,9 @@ from app.config import (
     SHORTENER_MAX_REDIRECTS,
     URL_FETCH_USER_AGENT,
 )
+from app.seedlists import SHORTENERS
 
 ALLOWED_SCHEMES = {"http", "https"}
-_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # Offline extractor: use the bundled public-suffix snapshot, never fetch from
 # the network (keeps tests/CI hermetic). Refresh the snapshot via a dep bump.
@@ -134,16 +132,9 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
-@lru_cache(maxsize=1)
 def load_shorteners() -> frozenset[str]:
-    """Load the known-shortener domains from the data file (cached)."""
-    path = _DATA_DIR / "shorteners.txt"
-    domains: set[str] = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip().lower()
-        if line:
-            domains.add(line)
-    return frozenset(domains)
+    """The known-shortener domains (see app/seedlists.py)."""
+    return SHORTENERS
 
 
 def is_shortener(host: str) -> bool:

@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
-from pathlib import Path
 from typing import Callable
 
 from app.config import (
@@ -24,8 +22,7 @@ from app.config import (
 from app.core.urls import NormalizedURL
 from app.models import Finding, Severity
 from app.models.schemas import SOURCE_HEURISTICS
-
-_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+from app.seedlists import BRANDS, SUSPICIOUS_TLDS
 
 # Leetspeak / number-for-letter substitutions used to disguise brand names.
 _LEET_MAP = str.maketrans({"0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "$": "s", "@": "a"})
@@ -46,23 +43,14 @@ def _finding(severity: Severity, title: str, detail: str, tip: str) -> Finding:
     return Finding(source=SOURCE_HEURISTICS, severity=severity, title=title, detail=detail, tip=tip)
 
 
-@lru_cache(maxsize=1)
-def _load_list(filename: str) -> frozenset[str]:
-    path = _DATA_DIR / filename
-    items: set[str] = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip().lower()
-        if line:
-            items.add(line)
-    return frozenset(items)
-
-
 def load_brands() -> frozenset[str]:
-    return _load_list("brands.txt")
+    """Impersonated-brand tokens (see app/seedlists.py)."""
+    return BRANDS
 
 
 def load_suspicious_tlds() -> frozenset[str]:
-    return _load_list("suspicious_tlds.txt")
+    """Frequently-abused TLDs (see app/seedlists.py)."""
+    return SUSPICIOUS_TLDS
 
 
 # ---------------------------------------------------------------------------
