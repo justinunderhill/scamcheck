@@ -1,0 +1,20 @@
+# Normalize line endings across platforms. Store text as LF in the repo;
+# check out LF in working copies too (keeps Windows/macOS/Linux + CI consistent).
+* text=auto eol=lf
+
+# Scripts must stay LF (CRLF breaks shebangs / shell parsing).
+*.sh text eol=lf
+
+# Lockfiles: text, but don't clutter diffs with them.
+uv.lock linguist-generated
+package-lock.json linguist-generated -diff
+
+# Binary assets — never normalize or text-diff these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
