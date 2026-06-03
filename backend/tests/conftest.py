@@ -20,7 +20,7 @@ def _isolate_settings(monkeypatch):
     cfg["env_file"] = None
     monkeypatch.setattr(config.Settings, "model_config", cfg)
     # Ensure no leftover keys from the developer's shell unless a test sets them.
-    for var in ("GOOGLE_SAFE_BROWSING_KEY", "VIRUSTOTAL_KEY", "ANTHROPIC_API_KEY"):
+    for var in ("GOOGLE_SAFE_BROWSING_KEY", "WEB_RISK_KEY", "VIRUSTOTAL_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     config.get_settings.cache_clear()
     # The abuse guard is a process-wide singleton; start each test clean.

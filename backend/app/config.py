@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     # --- Secrets (backend only; never sent to the frontend) ---
     google_safe_browsing_key: str = ""
+    # Web Risk is Google's current blocklist API (replacement for Safe Browsing
+    # v4). Defaults to the Safe Browsing key so a single Google API key can serve
+    # both — set separately only if you use a different key.
+    web_risk_key: str = ""
     virustotal_key: str = ""
     anthropic_api_key: str = ""
 
@@ -39,6 +43,15 @@ class Settings(BaseSettings):
     @property
     def google_safe_browsing_enabled(self) -> bool:
         return bool(self.google_safe_browsing_key)
+
+    @property
+    def web_risk_effective_key(self) -> str:
+        # Fall back to the Safe Browsing key (same Google project) if unset.
+        return self.web_risk_key or self.google_safe_browsing_key
+
+    @property
+    def web_risk_enabled(self) -> bool:
+        return bool(self.web_risk_effective_key)
 
     @property
     def virustotal_enabled(self) -> bool:
@@ -87,6 +100,8 @@ SCORE_DANGEROUS_THRESHOLD = 70
 SCORE_WEIGHTS: dict[tuple[str, str], int] = {
     ("google_safe_browsing", "high"): 90,
     ("google_safe_browsing", "medium"): 60,
+    ("web_risk", "high"): 90,
+    ("web_risk", "medium"): 60,
     ("virustotal", "high"): 80,
     ("virustotal", "medium"): 45,
     ("ai_message_analysis", "high"): 50,

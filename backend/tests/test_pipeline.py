@@ -33,9 +33,9 @@ def with_keys(monkeypatch):
     get_settings.cache_clear()
 
 
-def _mock_gsb(matches: bool):
-    body = {"matches": [{"threatType": "SOCIAL_ENGINEERING"}]} if matches else {}
-    respx.route(method="POST", host="safebrowsing.googleapis.com").mock(
+def _mock_web_risk(matches: bool):
+    body = {"threat": {"threatTypes": ["SOCIAL_ENGINEERING"]}} if matches else {}
+    respx.route(method="GET", host="webrisk.googleapis.com").mock(
         return_value=httpx.Response(200, json=body)
     )
 
@@ -49,37 +49,38 @@ def _mock_vt_clean():
 
 
 @respx.mock
-async def test_gsb_hit_makes_verdict_dangerous(with_keys):
-    _mock_gsb(True)
+async def test_web_risk_hit_makes_verdict_dangerous(with_keys):
+    _mock_web_risk(True)
     _mock_vt_clean()
 
     result = await pipeline.analyze("https://totally-legit-bank.example/login")
 
     assert result.verdict is Verdict.DANGEROUS
     assert result.score >= 70
-    assert set(result.sources_checked) == {"heuristics", "google_safe_browsing", "virustotal"}
+    assert set(result.sources_checked) == {"heuristics", "web_risk", "virustotal"}
     # No ANTHROPIC key in `with_keys` -> AI summary falls back to template.
     assert result.sources_unavailable == ["ai"]
-    assert any(f.source == "google_safe_browsing" for f in result.findings)
+    assert any(f.source == "web_risk" for f in result.findings)
 
 
 @respx.mock
 async def test_graceful_degradation_one_source_down(with_keys):
-    # GSB errors; VT still answers. Request must still succeed.
-    respx.route(method="POST", host="safebrowsing.googleapis.com").mock(
+    # Web Risk errors; VT still answers. Request must still succeed.
+    respx.route(method="GET", host="webrisk.googleapis.com").mock(
         return_value=httpx.Response(503)
     )
     _mock_vt_clean()
 
     result = await pipeline.analyze("https://example.com")
 
-    assert "google_safe_browsing" in result.sources_unavailable
+    assert "web_risk" in result.sources_unavailable
     assert "virustotal" in result.sources_checked
     assert "heuristics" in result.sources_checked
 
 
 async def test_no_keys_both_external_unavailable(monkeypatch):
     monkeypatch.delenv("GOOGLE_SAFE_BROWSING_KEY", raising=False)
+    monkeypatch.delenv("WEB_RISK_KEY", raising=False)
     monkeypatch.delenv("VIRUSTOTAL_KEY", raising=False)
     get_settings.cache_clear()
     try:
@@ -87,7 +88,7 @@ async def test_no_keys_both_external_unavailable(monkeypatch):
     finally:
         get_settings.cache_clear()
 
-    assert set(result.sources_unavailable) == {"google_safe_browsing", "virustotal", "ai"}
+    assert set(result.sources_unavailable) == {"web_risk", "virustotal", "ai"}
     assert result.sources_checked == ["heuristics"]
 
 
@@ -98,7 +99,7 @@ async def test_shortener_is_expanded_and_flagged(with_keys):
         return_value=httpx.Response(301, headers={"location": final})
     )
     respx.head(final).mock(return_value=httpx.Response(200))
-    _mock_gsb(False)
+    _mock_web_risk(False)
     _mock_vt_clean()
 
     result = await pipeline.analyze("https://bit.ly/abc")
@@ -109,7 +110,7 @@ async def test_shortener_is_expanded_and_flagged(with_keys):
 
 @respx.mock
 async def test_dangerous_summary_is_template_without_ai(with_keys):
-    _mock_gsb(True)
+    _mock_web_risk(True)
     _mock_vt_clean()
     # No ANTHROPIC key in `with_keys` -> AI summary falls back to template.
     result = await pipeline.analyze("https://evil.example")
@@ -130,7 +131,7 @@ def with_ai(monkeypatch):
 
 @respx.mock
 async def test_ai_summary_used_when_available(with_ai, monkeypatch):
-    _mock_gsb(False)
+    _mock_web_risk(False)
     _mock_vt_clean()
 
     async def fake_explain(verdict, score, findings):
@@ -145,7 +146,7 @@ async def test_ai_summary_used_when_available(with_ai, monkeypatch):
 
 @respx.mock
 async def test_ai_summary_falls_back_on_failure(with_ai, monkeypatch):
-    _mock_gsb(False)
+    _mock_web_risk(False)
     _mock_vt_clean()
 
     async def boom(verdict, score, findings):
@@ -160,7 +161,7 @@ async def test_ai_summary_falls_back_on_failure(with_ai, monkeypatch):
 
 @respx.mock
 async def test_message_analysis_adds_findings_and_escalates(with_ai, monkeypatch):
-    _mock_gsb(False)
+    _mock_web_risk(False)
     _mock_vt_clean()
 
     async def fake_explain(verdict, score, findings):
@@ -187,7 +188,7 @@ async def test_message_analysis_adds_findings_and_escalates(with_ai, monkeypatch
 
 @respx.mock
 async def test_message_ignored_on_free_tier(with_ai, monkeypatch):
-    _mock_gsb(False)
+    _mock_web_risk(False)
     _mock_vt_clean()
 
     async def fake_explain(verdict, score, findings):

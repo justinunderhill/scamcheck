@@ -10,6 +10,7 @@ from app.core.urls import normalize_url
 from app.models import Severity
 from app.services import google_safe_browsing as gsb
 from app.services import virustotal as vt
+from app.services import web_risk
 from app.services.base import SourceUnavailable
 
 
@@ -70,6 +71,52 @@ async def test_gsb_unconfigured_raises(no_keys):
     async with httpx.AsyncClient() as client:
         with pytest.raises(SourceUnavailable):
             await gsb.check(normalize_url("https://example.com"), client)
+
+
+# --- Google Web Risk -----------------------------------------------------
+
+@respx.mock
+async def test_web_risk_threat_is_high(with_keys):
+    respx.route(method="GET", host="webrisk.googleapis.com").mock(
+        return_value=httpx.Response(200, json={"threat": {"threatTypes": ["MALWARE"]}})
+    )
+    async with httpx.AsyncClient() as client:
+        findings = await web_risk.check(normalize_url("https://evil.example"), client)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+    assert findings[0].source == "web_risk"
+
+
+@respx.mock
+async def test_web_risk_clean_is_empty(with_keys):
+    respx.route(method="GET", host="webrisk.googleapis.com").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    async with httpx.AsyncClient() as client:
+        findings = await web_risk.check(normalize_url("https://example.com"), client)
+    assert findings == []
+
+
+@respx.mock
+async def test_web_risk_403_raises(with_keys):
+    # API not enabled / key restricted -> unavailable, never crashes the request.
+    respx.route(method="GET", host="webrisk.googleapis.com").mock(
+        return_value=httpx.Response(403)
+    )
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(SourceUnavailable):
+            await web_risk.check(normalize_url("https://example.com"), client)
+
+
+async def test_web_risk_uses_safe_browsing_key_fallback(monkeypatch):
+    # Only the Safe Browsing key is set; Web Risk should still be configured.
+    monkeypatch.setenv("GOOGLE_SAFE_BROWSING_KEY", "shared-google-key")
+    monkeypatch.delenv("WEB_RISK_KEY", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert web_risk.is_configured() is True
+    finally:
+        get_settings.cache_clear()
 
 
 # --- VirusTotal ----------------------------------------------------------

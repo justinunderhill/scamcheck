@@ -61,7 +61,7 @@ def test_check_returns_contract_shape():
     assert 0 <= body["score"] <= 100
     assert "heuristics" in body["sources_checked"]
     # No keys in tests -> external sources + AI summary unavailable; request still succeeds.
-    assert set(body["sources_unavailable"]) == {"google_safe_browsing", "virustotal", "ai"}
+    assert set(body["sources_unavailable"]) == {"web_risk", "virustotal", "ai"}
     for finding in body["findings"]:
         assert set(finding) >= {"source", "severity", "title", "detail", "tip"}
         assert finding["severity"] in {"low", "medium", "high"}

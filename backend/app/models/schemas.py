@@ -27,6 +27,7 @@ class Severity(str, Enum):
 # new detection module can register its own name without editing this file.
 SOURCE_HEURISTICS = "heuristics"
 SOURCE_GOOGLE = "google_safe_browsing"
+SOURCE_WEB_RISK = "web_risk"
 SOURCE_VIRUSTOTAL = "virustotal"
 SOURCE_AI_MESSAGE = "ai_message_analysis"
 SOURCE_AI = "ai"  # the explanation layer; appears in sources_unavailable on fallback

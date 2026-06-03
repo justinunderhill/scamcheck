@@ -10,6 +10,7 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
 // Friendly names for the source identifiers in sources_checked / _unavailable.
 const SOURCE_NAMES: Record<string, string> = {
   google_safe_browsing: "Google Safe Browsing",
+  web_risk: "Google Web Risk",
   virustotal: "VirusTotal",
   heuristics: "our own checks",
   ai_message_analysis: "message analysis",

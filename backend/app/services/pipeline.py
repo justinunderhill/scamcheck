@@ -27,15 +27,17 @@ from app.core.urls import expand_url, normalize_url
 from app.models import CheckResponse, Finding
 from app.models.schemas import SOURCE_AI, SOURCE_AI_MESSAGE, SOURCE_HEURISTICS
 from app.services import ai
-from app.services import google_safe_browsing as gsb
 from app.services import heuristics
 from app.services import virustotal as vt
+from app.services import web_risk
 from app.services.ai.client import AIUnavailable
 from app.services.base import SourceUnavailable
 from app.services.scoring import score_findings, template_summary, verdict_for_score
 
 # External (HTTP) sources, in the order they appear in sources_checked.
-_EXTERNAL_SOURCES = (gsb, vt)
+# Web Risk is Google's current blocklist API; it replaces the legacy Safe
+# Browsing v4 source (`google_safe_browsing.py` is kept for reference/fallback).
+_EXTERNAL_SOURCES = (web_risk, vt)
 
 
 async def analyze(

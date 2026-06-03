@@ -35,7 +35,7 @@ async def health() -> dict[str, object]:
     return {
         "status": "ok",
         "sources": {
-            "google_safe_browsing": settings.google_safe_browsing_enabled,
+            "web_risk": settings.web_risk_enabled,
             "virustotal": settings.virustotal_enabled,
             "ai": settings.ai_enabled,
         },
