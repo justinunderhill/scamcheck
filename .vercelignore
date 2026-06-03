@@ -1,0 +1,15 @@
+# Keep the deployment upload lean and never ship secrets or local artifacts.
+.env
+*.env
+!.env.example
+
+backend/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+*.egg-info
+
+frontend/node_modules
+frontend/dist
+
+.git
