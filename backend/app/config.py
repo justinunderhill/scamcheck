@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     # working cap). Set true for single-process local dev to use AI without Redis.
     ai_allow_without_durable_budget: bool = False
 
+    # --- Internal analytics ---
+    # Secret token guarding GET /api/admin/analytics. When empty the admin route
+    # is disabled entirely (responds 404), so analytics are never exposed by
+    # accident. Set it to a long random string in production.
+    admin_api_token: str = ""
+    # Feature flag for the PUBLIC "links checked / scams flagged" counter
+    # (GET /api/stats/public). OFF by default — the route 404s until this is
+    # turned on. The numbers come from the same aggregate counters as the admin
+    # view; no per-user data is involved either way.
+    public_stats_enabled: bool = False
+
     # --- Development ---
     # Bypass abuse limits (per-IP short-window rate limit AND the daily free-tier
     # cap) so you can test freely on your own machine. Defaults OFF; never set in
@@ -92,6 +103,10 @@ class Settings(BaseSettings):
     def ai_enabled(self) -> bool:
         return bool(self.anthropic_api_key)
 
+    @property
+    def admin_analytics_enabled(self) -> bool:
+        return bool(self.admin_api_token)
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -114,6 +129,19 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 # fall back to deterministic-only results so scripted abuse can't run up the
 # AI bill. The verdict + findings are unaffected — only the AI summary is.
 AI_DAILY_CALL_CAP = 2000
+
+
+# ---------------------------------------------------------------------------
+# Internal analytics (see docs/ANALYTICS.md)
+# ---------------------------------------------------------------------------
+# All analytics counter keys are aggregate integers under this namespace. We
+# count categories only — never URLs or message text (see the "count, don't log"
+# rule in docs/ANALYTICS.md). Counters share the durable Redis store with abuse
+# protection but live under their own prefix so the two never collide.
+ANALYTICS_KEY_PREFIX = "stats:"
+# Per-day counters (e.g. checks on a given date) expire after this many seconds
+# so day-bucketed keys don't accumulate forever; all-time totals never expire.
+ANALYTICS_DAILY_TTL_SECONDS = 60 * 60 * 24 * 120  # ~120 days of daily history
 
 
 # ---------------------------------------------------------------------------

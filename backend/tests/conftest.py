@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from app import config
+from app.services.analytics import MemoryAnalyticsStore, analytics
 from app.services.limits import MemoryAbuseStore, guard
 
 
@@ -28,9 +29,12 @@ def _isolate_settings(monkeypatch):
     ):
         monkeypatch.delenv(var, raising=False)
     config.get_settings.cache_clear()
-    # The abuse guard is a process-wide singleton; give each test a clean,
-    # in-memory store (independent of whatever the dev shell has configured).
+    # The abuse guard and analytics recorder are process-wide singletons; give
+    # each test a clean, in-memory store (independent of whatever the dev shell
+    # has configured) so nothing ever reaches a real Redis.
     guard.configure(MemoryAbuseStore())
+    analytics.configure(MemoryAnalyticsStore())
     yield
     config.get_settings.cache_clear()
     guard.configure(MemoryAbuseStore())
+    analytics.configure(MemoryAnalyticsStore())

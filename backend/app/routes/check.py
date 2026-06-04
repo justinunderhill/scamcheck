@@ -12,6 +12,8 @@ from app.config import FREE_TIER_CHECKS_PER_DAY, get_settings
 from app.core.tiers import features_for, resolve_tier
 from app.core.urls import InvalidURLError
 from app.models import CheckRequest, CheckResponse
+from app.models.schemas import SOURCE_HEURISTICS
+from app.services.analytics import analytics
 from app.services.limits import guard
 from app.services.pipeline import analyze
 
@@ -51,6 +53,8 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
         # malformed input or failed attempts never consume a free check.
         if not features.unlimited_checks:
             if not await guard.allow_daily_check(ip):
+                # Count the cap rejection (best-effort) before the friendly 429.
+                await analytics.record_free_cap_hit()
                 raise HTTPException(status_code=429, detail=_DAILY_MSG)
             count_this_check = True
 
@@ -59,7 +63,16 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
     # store (Redis) unless explicitly allowed for single-process local dev. Then
     # consume from the global daily AI budget; once exhausted, deterministic-only.
     ai_safe = guard.is_durable or settings.ai_allow_without_durable_budget
-    allow_ai = settings.ai_enabled and ai_safe and await guard.try_consume_ai_budget()
+    ai_cap_hit = False
+    allow_ai = settings.ai_enabled and ai_safe
+    if allow_ai:
+        # Consuming the budget tells us whether the hard cap was just hit (the
+        # request still succeeds — it only loses the AI summary).
+        if await guard.try_consume_ai_budget():
+            ai_cap_hit = False
+        else:
+            allow_ai = False
+            ai_cap_hit = True
 
     try:
         result = await analyze(
@@ -76,4 +89,16 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
     # Successful, valid check — now (and only now) count it toward the daily cap.
     if count_this_check:
         await guard.record_daily_check(ip)
+
+    # Internal analytics: aggregate counters only, best-effort, never user data.
+    heuristic_codes = [
+        f.code for f in result.findings if f.source == SOURCE_HEURISTICS and f.code
+    ]
+    await analytics.record_check(
+        verdict=result.verdict.value,
+        heuristic_codes=heuristic_codes,
+        sources_checked=result.sources_checked,
+        sources_unavailable=result.sources_unavailable,
+        ai_cap_hit=ai_cap_hit,
+    )
     return result

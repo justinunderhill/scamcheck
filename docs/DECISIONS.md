@@ -48,6 +48,50 @@ take an optional `email_domain` (the latter folds it into the cache key);
 the pipeline only passes it for email input. Email is honestly scoped as one
 weak signal, not a verdict on the message itself.
 
+### 2026-06-04 — Internal analytics: aggregate counters in the same KV store
+**Decision:** Track product usage with **aggregate integer counters only** — no
+event log, no per-request rows, never a URL or message. Counters live in the
+same Upstash Redis (Vercel KV-compatible) store already used for abuse
+protection, under a dedicated `stats:` prefix so the two never collide. A
+`MemoryAnalyticsStore` backs local dev and tests; `RedisAnalyticsStore` (one
+pipelined REST round trip per write) backs production. Writes are best-effort
+(errors swallowed) and happen only after a check has already succeeded, so they
+never block, fail, or skew on invalid input. Numbers are exposed only on a
+token-gated `GET /api/admin/analytics` (404 when no token is set). A public
+"links checked / scams flagged" pair (`GET /api/stats/public`) is derived from
+the same counters but sits behind the `public_stats_enabled` flag, **off by
+default**. Full spec: `docs/ANALYTICS.md`.
+
+**Why:** We want to know what's working (volume, verdict mix, which heuristics
+earn their keep, source uptime, AI-vs-template rate, how often the caps bite)
+without ever building a data-retention liability. URLs and pasted messages can
+carry tokens and personal data (CLAUDE.md ethics rule), so the only safe design
+is "count, don't log": increment a category counter and keep nothing else.
+Reusing the existing KV store avoids new infra; a separate prefix keeps the
+abuse and stats namespaces independent. Best-effort writes honour the rule that
+analytics must never degrade the user's result.
+
+**Counter keys** (all under the `stats:` prefix; all aggregate integers):
+
+| Key | Meaning | Expiry |
+|---|---|---|
+| `stats:checks:total` | All-time successful checks | never |
+| `stats:checks:day:<YYYY-MM-DD>` | Successful checks on a given UTC day | ~120d |
+| `stats:verdict:<safe\|suspicious\|dangerous>` | Verdict breakdown | never |
+| `stats:heuristic:<code>` | Times a named heuristic fired (`raw_ip`, `domain_age`, …) | never |
+| `stats:source:<name>:<available\|unavailable>` | External source uptime (`web_risk`, `virustotal`, `google_safe_browsing`) | never |
+| `stats:ai:ran` / `stats:ai:template` | AI summary produced vs template fallback | never |
+| `stats:cap:free_tier` | Requests rejected by the per-IP daily free cap | never |
+| `stats:cap:ai_hardcap` | Requests where the global daily AI budget was exhausted | never |
+
+**Consequences:** `Finding` gained an internal `code` (excluded from the API
+response, so the public contract is unchanged) carrying each heuristic's stable
+name; `HEURISTIC_CODES` is that name list. The check route records once per
+successful check and once per free-cap rejection. Only day-bucketed keys carry a
+TTL; all-time totals never expire. Heuristic counter names are now a stable
+internal contract — rewording a finding's user-facing text is safe, but renaming
+a `code` resets that counter. Turning on the public counter is a one-flag change.
+
 ## Template
 
 ### [DATE] — Title

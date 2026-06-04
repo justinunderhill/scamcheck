@@ -41,6 +41,11 @@ class Finding(BaseModel):
     title: str = Field(..., description="Short plain-language label. No jargon.")
     detail: str = Field(..., description="One sentence explaining what was found.")
     tip: str = Field(..., description="One sentence teaching the general lesson.")
+    # Stable internal identifier for the specific check that produced this
+    # finding (e.g. "domain_age"). Used only for aggregate analytics counters;
+    # excluded from the API response so the public contract is unchanged. The
+    # user-facing wording above may change freely without breaking stats.
+    code: str | None = Field(default=None, exclude=True)
 
 
 class CheckRequest(BaseModel):

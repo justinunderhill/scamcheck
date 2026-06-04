@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routes import check_router, report_router
+from app.routes import analytics_router, check_router, report_router
 from app.services.limits import guard
 
 settings = get_settings()
@@ -28,6 +28,7 @@ app.add_middleware(
 
 app.include_router(check_router)
 app.include_router(report_router)
+app.include_router(analytics_router)
 
 
 @app.get("/api/health")

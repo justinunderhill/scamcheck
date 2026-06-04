@@ -39,8 +39,30 @@ _SCAM_KEYWORDS = frozenset({
 })
 
 
-def _finding(severity: Severity, title: str, detail: str, tip: str) -> Finding:
-    return Finding(source=SOURCE_HEURISTICS, severity=severity, title=title, detail=detail, tip=tip)
+# Stable identifiers for each heuristic, carried on the finding's `code` for
+# aggregate analytics ("which heuristics fired by name"). These names are an
+# internal contract for the stats counters — keep them stable even if the
+# user-facing wording changes. HEURISTIC_CODES lists the full set so the
+# analytics snapshot can report a zero for checks that never fired.
+HEURISTIC_CODES: tuple[str, ...] = (
+    "embedded_credentials",
+    "raw_ip",
+    "excessive_subdomains",
+    "shortener",
+    "suspicious_tld",
+    "punycode",
+    "homograph",
+    "lookalike",
+    "domain_age",
+    "no_https",
+    "cert_problem",
+)
+
+
+def _finding(code: str, severity: Severity, title: str, detail: str, tip: str) -> Finding:
+    return Finding(
+        source=SOURCE_HEURISTICS, severity=severity, title=title, detail=detail, tip=tip, code=code
+    )
 
 
 def load_brands() -> frozenset[str]:
@@ -61,6 +83,7 @@ def check_raw_ip(url: NormalizedURL) -> Finding | None:
     if not url.is_ip:
         return None
     return _finding(
+        "raw_ip",
         Severity.HIGH,
         "Uses a numeric address instead of a name",
         "This link points straight to a numeric server address rather than a normal website name.",
@@ -77,6 +100,7 @@ def check_excessive_subdomains(url: NormalizedURL) -> Finding | None:
     if len(meaningful) <= HEURISTIC_MAX_SUBDOMAIN_LABELS:
         return None
     return _finding(
+        "excessive_subdomains",
         Severity.MEDIUM,
         "Unusually complicated web address",
         "This address stacks many parts before the real site name, which can hide where it really goes.",
@@ -88,6 +112,7 @@ def check_shortener(url: NormalizedURL, was_shortener: bool) -> Finding | None:
     if not was_shortener:
         return None
     return _finding(
+        "shortener",
         Severity.LOW,
         "Shortened link",
         "This was a shortened link that hides its real destination until you open it.",
@@ -103,6 +128,7 @@ def check_suspicious_tld(url: NormalizedURL) -> Finding | None:
     if final_label not in load_suspicious_tlds():
         return None
     return _finding(
+        "suspicious_tld",
         Severity.LOW,
         f"Unusual website ending (.{final_label})",
         f"This site ends in .{final_label}, an ending that scammers use far more often than legitimate businesses.",
@@ -117,6 +143,7 @@ def check_punycode_homograph(url: NormalizedURL) -> Finding | None:
 
     if "xn--" in host:
         return _finding(
+            "punycode",
             Severity.HIGH,
             "Disguised web address",
             "This address uses encoded characters that can make a fake site look like a real one.",
@@ -132,6 +159,7 @@ def check_punycode_homograph(url: NormalizedURL) -> Finding | None:
             dangerous = True  # non-ASCII host we couldn't vet -> err toward caution
         if dangerous:
             return _finding(
+                "homograph",
                 Severity.HIGH,
                 "Lookalike characters in the address",
                 "This address mixes in characters that look like ordinary letters but aren't, a trick used to imitate real sites.",
@@ -161,12 +189,14 @@ def check_embedded_credentials(url: NormalizedURL) -> Finding | None:
 
     if looks_like_domain or looks_like_brand:
         return _finding(
+            "embedded_credentials",
             Severity.HIGH,
             "Hidden real destination",
             f"This link looks like it goes to {shown}, but it actually goes to {url.host}.",
             "The real destination of a link is the part right before the first single slash — anything before an '@' sign can be faked.",
         )
     return _finding(
+        "embedded_credentials",
         Severity.MEDIUM,
         "Sign-in name hidden in the link",
         f"This link tucks a sign-in name before an '@', so it actually goes to {url.host}, not necessarily where it appears to.",
@@ -198,6 +228,7 @@ def check_lookalike(url: NormalizedURL) -> Finding | None:
 
     def lookalike_finding(brand: str, why: str) -> Finding:
         return _finding(
+            "lookalike",
             Severity.HIGH,
             "Pretends to be a known brand",
             f"This address looks like it belongs to {brand.capitalize()} ({why}), but it isn't their real website.",
@@ -259,6 +290,7 @@ def check_domain_age(url: NormalizedURL, registration_date: datetime | None) -> 
 
     when = "today" if age_days == 0 else f"{age_days} day{'s' if age_days != 1 else ''} ago"
     return _finding(
+        "domain_age",
         severity,
         "Very new website",
         f"This website's address was first registered {when}. Scam sites are often brand new.",
@@ -278,6 +310,7 @@ class CertInfo:
 def check_https_cert(url: NormalizedURL, cert: CertInfo | None) -> Finding | None:
     if url.scheme == "http":
         return _finding(
+            "no_https",
             Severity.MEDIUM,
             "Connection isn't private (no HTTPS)",
             "This site doesn't use a secure connection, so anything you type could be seen by others.",
@@ -295,6 +328,7 @@ def check_https_cert(url: NormalizedURL, cert: CertInfo | None) -> Finding | Non
     else:
         detail = "This site's security certificate didn't check out, so its identity can't be confirmed."
     return _finding(
+        "cert_problem",
         Severity.MEDIUM,
         "Security certificate problem",
         detail,
