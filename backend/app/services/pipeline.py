@@ -59,6 +59,10 @@ async def analyze(
     expansion = await expand_url(normalized)
     final = normalize_url(expansion.final_url) if expansion.expanded else normalized
 
+    # If the user pasted an email address, we checked its sender domain. The
+    # summary must label that scope (a clean domain doesn't make the email safe).
+    email_domain = final.host if final.is_email else None
+
     findings: list[Finding] = []
     sources_checked: list[str] = []
     sources_unavailable: list[str] = []
@@ -100,12 +104,15 @@ async def analyze(
     # --- AI explanation summary, with deterministic fallback ---
     summary: str | None = None
     if allow_ai_summary and settings.ai_enabled:
+        # Only pass email_domain when relevant so existing call sites/tests that
+        # stub explain(verdict, score, findings) keep working for normal URLs.
+        explain_extra = {"email_domain": email_domain} if email_domain else {}
         try:
-            summary = await ai.explain(verdict, score, findings)
+            summary = await ai.explain(verdict, score, findings, **explain_extra)
         except AIUnavailable:
             summary = None
     if summary is None:
-        summary = template_summary(verdict, findings)
+        summary = template_summary(verdict, findings, email_domain=email_domain)
         sources_unavailable.append(SOURCE_AI)
 
     return CheckResponse(

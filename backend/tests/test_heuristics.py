@@ -141,6 +141,47 @@ def test_unrelated_domain_not_flagged():
     assert h.check_lookalike(normalize_url("https://my-cool-startup.com")) is None
 
 
+# --- embedded credentials / @ in URL -------------------------------------
+
+def test_at_sign_brand_lookalike_flagged_high():
+    # Reads like Instagram, but the real host is evil-site.com.
+    url = normalize_url("https://instagram.com@evil-site.com")
+    f = h.check_embedded_credentials(url)
+    assert sev(f) == Severity.HIGH
+    # The detail must name the TRUE destination plainly.
+    assert "evil-site.com" in f.detail
+
+
+def test_at_sign_with_ip_true_host_high():
+    url = normalize_url("https://paypal.com@192.0.2.10/login")
+    assert sev(h.check_embedded_credentials(url)) == Severity.HIGH
+    # The true host is the IP, so the raw-IP check fires on it (not on paypal.com).
+    assert url.host == "192.0.2.10"
+    assert sev(h.check_raw_ip(url)) == Severity.HIGH
+
+
+def test_at_sign_plain_username_lower_severity():
+    # Userinfo isn't a brand/domain lookalike — flag, but don't over-alarm.
+    url = normalize_url("https://user@github.com")
+    f = h.check_embedded_credentials(url)
+    assert f is not None
+    assert f.severity != Severity.HIGH
+    assert "github.com" in f.detail
+
+
+def test_no_at_sign_no_credentials_finding():
+    assert h.check_embedded_credentials(normalize_url("https://instagram.com/login")) is None
+
+
+def test_other_heuristics_use_true_host_not_userinfo():
+    # Userinfo imitates google.com, but the real host is a paypal typo-squat.
+    # The lookalike check must judge the TRUE host, never the userinfo.
+    url = normalize_url("https://google.com@paypa1.com")
+    f = h.check_lookalike(url)
+    assert sev(f) == Severity.HIGH
+    assert "paypal" in f.detail.lower()
+
+
 # --- domain age ----------------------------------------------------------
 
 def test_brand_new_domain_high():

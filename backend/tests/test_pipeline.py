@@ -119,6 +119,22 @@ async def test_dangerous_summary_is_template_without_ai(with_keys):
     assert "ai" in result.sources_unavailable
 
 
+@respx.mock
+async def test_email_input_checks_domain_and_labels_summary(with_keys):
+    _mock_web_risk(False)
+    _mock_vt_clean()
+
+    result = await pipeline.analyze("security@mail.instagram.com")
+
+    # Input is echoed back as the email; we report the domain we actually checked.
+    assert result.input_url == "security@mail.instagram.com"
+    assert result.final_url == "https://mail.instagram.com"
+    # Template summary (no AI key) must label this as an email-domain check and be
+    # honest that a clean domain doesn't make the email safe.
+    assert "mail.instagram.com" in result.summary
+    assert "email" in result.summary.lower()
+
+
 @pytest.fixture
 def with_ai(monkeypatch):
     monkeypatch.setenv("GOOGLE_SAFE_BROWSING_KEY", "k")

@@ -34,25 +34,38 @@ __all__ = ["explain", "analyze_message", "analyze_page", "followup", "AIUnavaila
 _explain_cache: "OrderedDict[str, str]" = OrderedDict()
 
 
-def _explain_cache_key(verdict: Verdict, findings: list[Finding]) -> str:
+def _explain_cache_key(
+    verdict: Verdict, findings: list[Finding], email_domain: str | None
+) -> str:
     payload = {
         "verdict": verdict.value,
         "findings": sorted(
             (f.source, f.severity.value, f.title) for f in findings
         ),
+        "email_domain": email_domain,
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-async def explain(verdict: Verdict, score: int, findings: list[Finding]) -> str:
-    """Plain-language summary of the result. Cached; raises AIUnavailable on failure."""
-    key = _explain_cache_key(verdict, findings)
+async def explain(
+    verdict: Verdict,
+    score: int,
+    findings: list[Finding],
+    *,
+    email_domain: str | None = None,
+) -> str:
+    """Plain-language summary of the result. Cached; raises AIUnavailable on failure.
+
+    `email_domain`, when set, tells the model the input was an email address and
+    only its domain was checked, so the summary can be honest about that scope.
+    """
+    key = _explain_cache_key(verdict, findings, email_domain)
     if key in _explain_cache:
         _explain_cache.move_to_end(key)
         return _explain_cache[key]
 
-    user = _render_explain_input(verdict, score, findings)
+    user = _render_explain_input(verdict, score, findings, email_domain)
     summary = await complete(
         model=AI_EXPLAIN_MODEL,
         system=prompts.EXPLAIN_SYSTEM,
@@ -67,14 +80,24 @@ async def explain(verdict: Verdict, score: int, findings: list[Finding]) -> str:
     return summary
 
 
-def _render_explain_input(verdict: Verdict, score: int, findings: list[Finding]) -> str:
+def _render_explain_input(
+    verdict: Verdict, score: int, findings: list[Finding], email_domain: str | None
+) -> str:
     if findings:
         lines = "\n".join(f"- [{f.severity.value}] {f.title}: {f.detail}" for f in findings)
     else:
         lines = "- (no specific warning signs were detected)"
+    scope = ""
+    if email_domain:
+        scope = (
+            "Input type: the user pasted an EMAIL ADDRESS; we checked only its "
+            f"domain ({email_domain}). Make clear we checked the sender's domain, "
+            "and that a clean domain does not mean the email is safe (display-name "
+            "spoofing, lookalike domains, and hijacked accounts all exist).\n"
+        )
     # Findings are our own trusted strings, but we still frame them as data.
     return (
-        f"Verdict: {verdict.value}\nRisk score: {score}/100\n"
+        f"{scope}Verdict: {verdict.value}\nRisk score: {score}/100\n"
         f"Findings:\n{lines}\n\n"
         "Write the summary for the user now."
     )

@@ -140,6 +140,40 @@ def check_punycode_homograph(url: NormalizedURL) -> Finding | None:
     return None
 
 
+def check_embedded_credentials(url: NormalizedURL) -> Finding | None:
+    """Flag userinfo before an '@' — the real host is whatever follows it.
+
+    `https://instagram.com@evil.com` reads like Instagram but the browser goes to
+    evil.com. We flag any userinfo in a consumer link, and escalate to high when
+    it imitates a domain or brand (a dot, or a brand token) — the deliberate
+    deception pattern. The detail always names the TRUE destination so the user
+    sees where the link really goes. (Normalization already strips userinfo from
+    `url.url`, so every other check runs against the true host.)
+    """
+    if not url.userinfo:
+        return None
+
+    # Only the username matters for the disguise — never echo a password.
+    shown = url.userinfo.split(":", 1)[0]
+    tokens = {t for part in shown.lower().split(".") for t in part.split("-") if t}
+    looks_like_brand = bool(tokens & load_brands())
+    looks_like_domain = "." in shown
+
+    if looks_like_domain or looks_like_brand:
+        return _finding(
+            Severity.HIGH,
+            "Hidden real destination",
+            f"This link looks like it goes to {shown}, but it actually goes to {url.host}.",
+            "The real destination of a link is the part right before the first single slash — anything before an '@' sign can be faked.",
+        )
+    return _finding(
+        Severity.MEDIUM,
+        "Sign-in name hidden in the link",
+        f"This link tucks a sign-in name before an '@', so it actually goes to {url.host}, not necessarily where it appears to.",
+        "The real destination of a link is the part right before the first single slash — anything before an '@' sign can be faked.",
+    )
+
+
 def check_lookalike(url: NormalizedURL) -> Finding | None:
     """Detect domains imitating a known brand without being it.
 
@@ -298,6 +332,7 @@ def check(
         cert = None
 
     candidates = [
+        check_embedded_credentials(url),
         check_raw_ip(url),
         check_excessive_subdomains(url),
         check_shortener(url, was_shortener),

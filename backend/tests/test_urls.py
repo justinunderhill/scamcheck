@@ -9,6 +9,7 @@ from app.core.urls import (
     InvalidURLError,
     expand_url,
     is_shortener,
+    looks_like_email,
     normalize_url,
 )
 
@@ -72,6 +73,71 @@ def test_rejects_input_with_spaces():
 def test_rejects_bare_word():
     with pytest.raises(InvalidURLError):
         normalize_url("localhost")
+
+
+# --- userinfo / @ in URL -------------------------------------------------
+
+def test_userinfo_stripped_from_normalized_url():
+    n = normalize_url("https://instagram.com@evil-site.com")
+    # The real host is what follows the '@'.
+    assert n.host == "evil-site.com"
+    assert n.registered_domain == "evil-site.com"
+    assert n.userinfo == "instagram.com"
+    # The URL handed to blocklists must be the TRUE host, never the userinfo.
+    assert "instagram.com" not in n.url
+    assert n.url == "https://evil-site.com"
+
+
+def test_userinfo_with_ip_true_host():
+    n = normalize_url("https://paypal.com@192.0.2.10/login")
+    assert n.host == "192.0.2.10"
+    assert n.is_ip is True
+    assert n.userinfo == "paypal.com"
+    assert "paypal.com" not in n.url
+
+
+def test_no_userinfo_by_default():
+    n = normalize_url("https://example.com/login")
+    assert n.userinfo == ""
+    assert n.is_email is False
+
+
+# --- email input ---------------------------------------------------------
+
+def test_email_input_detected_and_checks_domain():
+    n = normalize_url("security@mail.instagram.com")
+    assert n.is_email is True
+    assert n.email_address == "security@mail.instagram.com"
+    # We check the DOMAIN the email comes from...
+    assert n.host == "mail.instagram.com"
+    assert n.registered_domain == "instagram.com"
+    # ...and never silently rewrite it into a https://...@... URL.
+    assert n.userinfo == ""
+    assert "@" not in n.url
+    assert n.url == "https://mail.instagram.com"
+
+
+def test_email_localpart_with_dot_not_treated_as_userinfo():
+    n = normalize_url("john.doe@example.com")
+    assert n.is_email is True
+    assert n.host == "example.com"
+    assert n.userinfo == ""
+
+
+def test_url_with_scheme_and_at_is_not_email():
+    # A real URL with userinfo is the @-in-URL trick, not an email.
+    n = normalize_url("https://instagram.com@evil.com")
+    assert n.is_email is False
+    assert n.host == "evil.com"
+
+
+def test_looks_like_email_helper():
+    assert looks_like_email("a@b.com") is True
+    assert looks_like_email("john.doe@mail.example.co.uk") is True
+    assert looks_like_email("https://a@b.com") is False   # has a scheme -> URL
+    assert looks_like_email("a@b.com/path") is False       # has a path -> URL
+    assert looks_like_email("example.com") is False        # no '@'
+    assert looks_like_email("user@localhost") is False     # no domain dot
 
 
 # --- shortener detection -------------------------------------------------

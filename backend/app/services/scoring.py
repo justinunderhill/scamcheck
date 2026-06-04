@@ -36,15 +36,31 @@ def verdict_for_score(score: int) -> Verdict:
     return Verdict.SAFE
 
 
-def template_summary(verdict: Verdict, findings: list[Finding]) -> str:
+def template_summary(
+    verdict: Verdict, findings: list[Finding], *, email_domain: str | None = None
+) -> str:
     """Deterministic, honest summary used when the AI layer is unavailable.
 
     Honest about uncertainty: a clean result says "no known threats found",
-    never "this is safe" (CLAUDE.md ethics rule).
+    never "this is safe" (CLAUDE.md ethics rule). When `email_domain` is set the
+    input was an email address: we say so plainly and warn that a clean sender
+    domain doesn't make the email safe (see docs/DECISIONS.md).
     """
+    if email_domain:
+        prefix = (
+            f"You pasted an email address, so we checked the domain it comes from "
+            f"({email_domain}). A clean sender domain doesn't mean the email is "
+            "safe — scammers fake display names, use lookalike domains, and hijack "
+            "real accounts. "
+        )
+        subject = "domain"
+    else:
+        prefix = ""
+        subject = "link"
+
     if verdict is Verdict.SAFE:
-        return (
-            "We didn't find any known threats for this link. That isn't a "
+        return prefix + (
+            f"We didn't find any known threats for this {subject}. That isn't a "
             "guarantee it's safe, so stay alert — especially if it arrived "
             "unexpectedly or asks for personal details."
         )
@@ -55,13 +71,13 @@ def template_summary(verdict: Verdict, findings: list[Finding]) -> str:
     reasons = _join(top)
 
     if verdict is Verdict.DANGEROUS:
-        return (
-            f"This link shows strong signs of being dangerous ({reasons}). "
-            "We'd strongly recommend not opening it and not entering any "
+        return prefix + (
+            f"This {subject} shows strong signs of being dangerous ({reasons}). "
+            "We'd strongly recommend not trusting it and not entering any "
             "personal or payment details."
         )
-    return (
-        f"This link has some warning signs ({reasons}). Treat it with caution: "
+    return prefix + (
+        f"This {subject} has some warning signs ({reasons}). Treat it with caution: "
         "don't enter passwords or payment details unless you're certain it's genuine."
     )
 

@@ -12,6 +12,7 @@ content (CLAUDE.md ethics rule). We only read the redirect chain's final URL.
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
@@ -26,6 +27,11 @@ from app.config import (
 from app.seedlists import SHORTENERS
 
 ALLOWED_SCHEMES = {"http", "https"}
+
+# A bare email address: localpart@domain, no scheme, no path/port/query/fragment,
+# and a domain with at least one dot. Used to tell "check this email's sender
+# domain" apart from a URL — see docs/DECISIONS.md (email-input handling).
+_EMAIL_RE = re.compile(r"^[^\s@/:?#]+@[^\s@/:?#]+\.[^\s@/:?#]+$")
 
 # Offline extractor: use the bundled public-suffix snapshot, never fetch from
 # the network (keeps tests/CI hermetic). Refresh the snapshot via a dep bump.
@@ -48,6 +54,15 @@ class NormalizedURL:
     registered_domain: str  # e.g. "example.com" (eTLD+1)
     suffix: str             # e.g. "com", "co.uk"
     is_ip: bool             # host is a raw IP literal
+    # The userinfo portion before any '@' in the authority (e.g. "instagram.com"
+    # in instagram.com@evil.com). Kept separate from the true host so the @-in-URL
+    # heuristic can flag it; "" when absent. The normalized `url` never includes it.
+    userinfo: str = ""
+    # Set when the input was a bare email address; we then check `host` (the
+    # email's domain) and label the result accordingly. `email_address` is the
+    # original address, echoed back to the user.
+    is_email: bool = False
+    email_address: str | None = None
 
     @property
     def labels(self) -> list[str]:
@@ -55,22 +70,48 @@ class NormalizedURL:
         return [p for p in self.host.split(".") if p]
 
 
+def looks_like_email(raw: str) -> bool:
+    """True if the input is a bare email address rather than a URL.
+
+    An email is `localpart@domain` with no scheme and no path. We classify before
+    normalising so `name@domain` is checked as its DOMAIN — never coerced into
+    `https://name@domain`, which would bury the real domain in userinfo and could
+    yield a misleading "safe". See docs/DECISIONS.md (email-input handling).
+    """
+    candidate = raw.strip()
+    if "://" in candidate:
+        return False  # a real URL (possibly with userinfo), not an email
+    return bool(_EMAIL_RE.match(candidate))
+
+
 def normalize_url(raw: str) -> NormalizedURL:
-    """Validate and normalize a user-supplied URL.
+    """Validate and normalize a user-supplied URL (or email address).
 
     - Trims whitespace; rejects empty input.
+    - Detects a bare email address and checks its DOMAIN instead (never rewrites
+      it into a userinfo URL).
     - Adds an https:// scheme when none is present.
     - Accepts only http/https; rejects javascript:, file:, ftp:, etc.
     - Requires a host. Lowercases the host. Detects raw-IP hosts.
+    - Strips any userinfo before an '@' from the normalized URL so every
+      downstream check and blocklist lookup runs against the TRUE host.
     """
     if raw is None:
         raise InvalidURLError("Please enter a link to check.")
 
-    candidate = raw.strip()
-    if not candidate:
+    input_url = raw.strip()
+    if not input_url:
         raise InvalidURLError("Please enter a link to check.")
-    if any(c.isspace() for c in candidate):
+    if any(c.isspace() for c in input_url):
         raise InvalidURLError("That doesn't look like a single link. Remove any spaces and try again.")
+
+    # Email input: peel off the localpart and check the sender's domain. Doing
+    # this first means the '@' is never interpreted as URL userinfo.
+    email_address: str | None = None
+    candidate = input_url
+    if looks_like_email(candidate):
+        email_address = candidate
+        candidate = candidate.rpartition("@")[2]  # the domain we'll actually check
 
     # If there's no scheme, assume https. We detect a scheme by the "://"
     # marker; a bare "example.com/path" has none. Reject non-web schemes early.
@@ -91,6 +132,11 @@ def normalize_url(raw: str) -> NormalizedURL:
     if not host:
         raise InvalidURLError("That doesn't look like a valid web address.")
 
+    # Userinfo is everything before the LAST '@' in the authority; the real host
+    # is what follows it (browsers honour this). We keep userinfo only to flag it
+    # and never let it into the normalized URL handed to blocklists.
+    userinfo = parts.netloc.rpartition("@")[0]
+
     is_ip = _is_ip_literal(host)
 
     if is_ip:
@@ -107,10 +153,10 @@ def normalize_url(raw: str) -> NormalizedURL:
 
     port = parts.port
     path = parts.path or "/"
-    normalized = urlunsplit((scheme, parts.netloc.lower(), parts.path, parts.query, ""))
+    normalized = urlunsplit((scheme, _authority(host, port, is_ip), parts.path, parts.query, ""))
 
     return NormalizedURL(
-        input_url=raw.strip(),
+        input_url=input_url,
         url=normalized,
         scheme=scheme,
         host=host,
@@ -120,7 +166,19 @@ def normalize_url(raw: str) -> NormalizedURL:
         registered_domain=registered_domain,
         suffix=suffix,
         is_ip=is_ip,
+        userinfo=userinfo,
+        is_email=email_address is not None,
+        email_address=email_address,
     )
+
+
+def _authority(host: str, port: int | None, is_ip: bool) -> str:
+    """Rebuild the authority from the true host only (no userinfo).
+
+    IPv6 literals need bracketing; an explicit port is preserved.
+    """
+    h = f"[{host}]" if is_ip and ":" in host else host
+    return f"{h}:{port}" if port is not None else h
 
 
 def _is_ip_literal(host: str) -> bool:
