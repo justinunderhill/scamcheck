@@ -44,10 +44,24 @@ async def test_rate_limit_is_per_ip(monkeypatch):
 
 
 async def test_daily_cap(monkeypatch):
+    # allow_daily_check only READS the count; record_daily_check increments it.
     monkeypatch.setattr(config, "FREE_TIER_CHECKS_PER_DAY", 2)
     g = AbuseGuard(MemoryAbuseStore())
     assert await g.allow_daily_check("ip") is True
+    await g.record_daily_check("ip")  # 1 used
     assert await g.allow_daily_check("ip") is True
+    await g.record_daily_check("ip")  # 2 used (at cap)
+    assert await g.allow_daily_check("ip") is False
+
+
+async def test_daily_check_only_counts_when_recorded(monkeypatch):
+    # Reading the cap repeatedly (e.g. malformed requests that never reach the
+    # record step) must NOT consume the allowance.
+    monkeypatch.setattr(config, "FREE_TIER_CHECKS_PER_DAY", 1)
+    g = AbuseGuard(MemoryAbuseStore())
+    for _ in range(5):
+        assert await g.allow_daily_check("ip") is True  # never recorded -> never used up
+    await g.record_daily_check("ip")
     assert await g.allow_daily_check("ip") is False
 
 
@@ -91,6 +105,9 @@ async def test_ai_budget_fails_closed_on_store_error():
         async def incr(self, key, ttl_seconds):
             raise RuntimeError("redis down")
 
+        async def get(self, key):
+            raise RuntimeError("redis down")
+
         def reset(self):
             pass
 
@@ -111,6 +128,32 @@ def test_daily_cap_returns_friendly_429(monkeypatch):
     resp = client.post("/api/check", json={"url": "https://example.com"})
     assert resp.status_code == 429
     assert "free checks" in resp.json()["detail"].lower()
+
+
+def test_malformed_input_does_not_consume_daily_cap(monkeypatch):
+    # Bad URLs return 400 and must NOT count against the daily free-tier cap.
+    monkeypatch.setattr(config, "FREE_TIER_CHECKS_PER_DAY", 2)
+    guard.reset()
+    for _ in range(5):
+        assert client.post("/api/check", json={"url": "not a url"}).status_code == 400
+    # All 2 valid checks are still available afterwards.
+    assert client.post("/api/check", json={"url": "https://example.com"}).status_code == 200
+    assert client.post("/api/check", json={"url": "https://example.com"}).status_code == 200
+    assert client.post("/api/check", json={"url": "https://example.com"}).status_code == 429
+
+
+def test_dev_unlimited_bypasses_caps(monkeypatch):
+    monkeypatch.setattr(config, "FREE_TIER_CHECKS_PER_DAY", 1)
+    monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 1)
+    monkeypatch.setenv("DEV_UNLIMITED", "true")
+    config.get_settings.cache_clear()
+    guard.reset()
+    try:
+        # Well past both the rate limit and the daily cap — all allowed in dev.
+        for _ in range(6):
+            assert client.post("/api/check", json={"url": "https://example.com"}).status_code == 200
+    finally:
+        config.get_settings.cache_clear()
 
 
 def test_rate_limit_returns_friendly_429(monkeypatch):

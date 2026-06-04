@@ -39,13 +39,20 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
     tier = resolve_tier(http_request)
     features = features_for(tier)
 
-    # Short-window per-IP rate limit (all tiers) — friendly message, not a bare 429.
-    if not await guard.allow_request(ip):
-        raise HTTPException(status_code=429, detail=_RATE_MSG)
+    # Abuse protection (skipped entirely when DEV_UNLIMITED is set, for local testing).
+    count_this_check = False
+    if not settings.dev_unlimited:
+        # Short-window per-IP rate limit (all tiers) — friendly message, not a bare 429.
+        if not await guard.allow_request(ip):
+            raise HTTPException(status_code=429, detail=_RATE_MSG)
 
-    # Daily free-tier cap (paid/business have unlimited checks).
-    if not features.unlimited_checks and not await guard.allow_daily_check(ip):
-        raise HTTPException(status_code=429, detail=_DAILY_MSG)
+        # Daily free-tier cap (paid/business have unlimited checks). This only
+        # CHECKS the cap; we count the request after it succeeds (below), so
+        # malformed input or failed attempts never consume a free check.
+        if not features.unlimited_checks:
+            if not await guard.allow_daily_check(ip):
+                raise HTTPException(status_code=429, detail=_DAILY_MSG)
+            count_this_check = True
 
     # AI safety interlock: only run AI when there's a place to enforce the budget.
     # On serverless the in-memory counter can't hold, so AI requires a durable
@@ -55,11 +62,18 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
     allow_ai = settings.ai_enabled and ai_safe and await guard.try_consume_ai_budget()
 
     try:
-        return await analyze(
+        result = await analyze(
             request.url,
             message=request.message,
             allow_message_analysis=features.message_analysis,
             allow_ai_summary=allow_ai,
         )
     except InvalidURLError as exc:
+        # Invalid input never counts against the daily cap (we don't reach the
+        # record step below).
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Successful, valid check — now (and only now) count it toward the daily cap.
+    if count_this_check:
+        await guard.record_daily_check(ip)
+    return result

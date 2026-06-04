@@ -30,6 +30,10 @@ class AbuseStore(Protocol):
         """Increment `key`, setting `ttl_seconds` on first creation; return the count."""
         ...
 
+    async def get(self, key: str) -> int:
+        """Return `key`'s current count without changing it (0 if missing/expired)."""
+        ...
+
     def reset(self) -> None:
         """Clear all counters (tests / single-process)."""
         ...
@@ -52,6 +56,13 @@ class MemoryAbuseStore:
             self._expiry[key] = now + ttl_seconds
         return self._counts[key]
 
+    async def get(self, key: str) -> int:
+        now = time.time()
+        if key in self._expiry and self._expiry[key] <= now:
+            self._counts.pop(key, None)
+            self._expiry.pop(key, None)
+        return self._counts.get(key, 0)
+
     def reset(self) -> None:
         self._counts.clear()
         self._expiry.clear()
@@ -73,6 +84,14 @@ class RedisAbuseStore:
             resp.raise_for_status()
             data = resp.json()
         return int(data[0]["result"])
+
+    async def get(self, key: str) -> int:
+        headers = {"Authorization": f"Bearer {self._token}"}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3.0), headers=headers) as client:
+            resp = await client.post(f"{self._url}/pipeline", json=[["GET", key]])
+            resp.raise_for_status()
+            result = resp.json()[0]["result"]
+        return int(result) if result is not None else 0
 
     def reset(self) -> None:  # pragma: no cover - no-op in production
         pass
@@ -104,12 +123,29 @@ class AbuseGuard:
         return count <= config.RATE_LIMIT_REQUESTS
 
     async def allow_daily_check(self, ip: str) -> bool:
-        """Per-IP daily free-tier cap. Fails OPEN on store error."""
+        """Per-IP daily free-tier cap CHECK only — does NOT count the request.
+
+        Reads the current count so a request is admitted only when the IP is under
+        the cap. The count is bumped separately by `record_daily_check` after a
+        successful, valid check, so malformed input and failed attempts never burn
+        a free check. Fails OPEN on store error (don't block real users).
+        """
         try:
-            count = await self._store.incr(f"daily:{ip}:{_today()}", 86_400)
+            count = await self._store.get(f"daily:{ip}:{_today()}")
         except Exception:  # noqa: BLE001
             return True
-        return count <= config.FREE_TIER_CHECKS_PER_DAY
+        return count < config.FREE_TIER_CHECKS_PER_DAY
+
+    async def record_daily_check(self, ip: str) -> None:
+        """Count one successful free-tier check toward today's per-IP cap.
+
+        Best-effort: a store error is swallowed (we already served the user; we'd
+        rather under-count than fail the response).
+        """
+        try:
+            await self._store.incr(f"daily:{ip}:{_today()}", 86_400)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def try_consume_ai_budget(self) -> bool:
         """Global daily AI-call budget. Fails CLOSED on store error (protect the bill)."""

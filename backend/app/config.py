@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # working cap). Set true for single-process local dev to use AI without Redis.
     ai_allow_without_durable_budget: bool = False
 
+    # --- Development ---
+    # Bypass abuse limits (per-IP short-window rate limit AND the daily free-tier
+    # cap) so you can test freely on your own machine. Defaults OFF; never set in
+    # production — it would remove all per-IP throttling. Does NOT touch the global
+    # AI budget cap (that protects the bill regardless).
+    dev_unlimited: bool = False
+
     # --- Server ---
     port: int = 8000
     # Origins allowed to call the API (the Vite dev server by default).
