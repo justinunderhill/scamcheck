@@ -19,6 +19,9 @@ venv/
 *.egg-info/
 build/
 
+# Local notes / scratch
+codexdebug.md
+
 # OS / editor
 .DS_Store
 .idea/
