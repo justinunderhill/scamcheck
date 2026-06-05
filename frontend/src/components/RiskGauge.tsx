@@ -7,7 +7,7 @@ interface Props {
 }
 
 const VERDICT_WORD: Record<Verdict, string> = {
-  safe: "Looks safe",
+  safe: "Nothing flagged",
   suspicious: "Be careful",
   dangerous: "Dangerous",
 };

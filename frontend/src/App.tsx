@@ -13,12 +13,12 @@ export function App() {
   const [result, setResult] = useState<CheckResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleCheck(url: string) {
+  async function handleCheck(url: string, message?: string) {
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      setResult(await checkUrl({ url }));
+      setResult(await checkUrl({ url, message }));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
     } finally {

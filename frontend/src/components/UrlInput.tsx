@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight, Search } from "./icons";
 
 interface Props {
-  onCheck: (url: string) => void;
+  onCheck: (url: string, message?: string) => void;
   loading: boolean;
 }
 
@@ -14,15 +14,17 @@ const EXAMPLES = [
 
 export function UrlInput({ onCheck, loading }: Props) {
   const [value, setValue] = useState("");
+  const [message, setMessage] = useState("");
 
-  function submit(url: string) {
+  function submit(url: string, msg?: string) {
     const trimmed = url.trim();
-    if (trimmed && !loading) onCheck(trimmed);
+    const trimmedMsg = (msg ?? "").trim();
+    if (trimmed && !loading) onCheck(trimmed, trimmedMsg || undefined);
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    submit(value);
+    submit(value, message);
   }
 
   return (
@@ -51,6 +53,21 @@ export function UrlInput({ onCheck, loading }: Props) {
             {!loading && <ArrowRight width={18} height={18} aria-hidden="true" />}
           </button>
         </div>
+
+        <label htmlFor="message" className="url-input__message-label">
+          Got the link in a text, email, or DM? Paste the whole message too —
+          we’ll check the wording for scam tactics. (Optional)
+        </label>
+        <textarea
+          id="message"
+          name="message"
+          className="url-input__message"
+          rows={3}
+          placeholder="e.g. “Royal Mail: your parcel is held pending a £1.99 fee. Pay within 24 hours to avoid return: …”"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          disabled={loading}
+        />
       </form>
 
       <div className="url-input__examples">
