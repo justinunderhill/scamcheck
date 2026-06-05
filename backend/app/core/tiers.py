@@ -27,8 +27,14 @@ class Features:
     history: bool            # saved check history
 
 
+# Mission-first decision (2026-06-05): message analysis is the only detector that
+# catches social-engineering scams on brand-new URLs that no blocklist knows yet —
+# exactly the links that hurt vulnerable people. Gating it behind a paid tier (with
+# no accounts shipped) meant it never ran for anyone, and clean-but-malicious links
+# came back a confident "safe". It is now available on the FREE tier. Cost stays
+# bounded by the durable daily AI budget + the AI safety interlock (see check.py).
 _FEATURES: dict[Tier, Features] = {
-    Tier.FREE: Features(unlimited_checks=False, message_analysis=False, followup=False, history=False),
+    Tier.FREE: Features(unlimited_checks=False, message_analysis=True, followup=False, history=False),
     Tier.PAID: Features(unlimited_checks=True, message_analysis=True, followup=True, history=True),
     Tier.BUSINESS: Features(unlimited_checks=True, message_analysis=True, followup=True, history=True),
 }

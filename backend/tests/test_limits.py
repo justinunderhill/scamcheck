@@ -176,12 +176,15 @@ def test_paid_tier_bypasses_daily_cap(monkeypatch):
         assert client.post("/api/check", json={"url": "https://example.com"}, headers=headers).status_code == 200
 
 
-def test_free_tier_ignores_message(monkeypatch):
+def test_free_tier_attempts_message_analysis(monkeypatch):
+    # Mission-first change (2026-06-05): message analysis is now available on the
+    # FREE tier, since it's the only detector that catches social-engineering
+    # scams on links no blocklist knows yet. With no ANTHROPIC key it's recorded
+    # as unavailable (gating allowed it; the call just couldn't run).
     guard.reset()
-    resp = client.post("/api/check", json={"url": "https://example.com", "message": "hi"})
+    resp = client.post("/api/check", json={"url": "https://example.com", "message": "Pay now!"})
     body = resp.json()
-    assert "ai_message_analysis" not in body["sources_checked"]
-    assert "ai_message_analysis" not in body["sources_unavailable"]
+    assert "ai_message_analysis" in body["sources_unavailable"]
 
 
 def test_ai_interlock_off_without_durable_store(monkeypatch):

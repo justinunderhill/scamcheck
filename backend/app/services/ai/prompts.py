@@ -32,8 +32,9 @@ Your task: write a short (2-4 sentence) plain-language summary explaining the \
 result to the user. Tailor the tone to the verdict:
 - dangerous: firm and clear; tell them not to open it or enter details.
 - suspicious: cautious; explain what to watch out for.
-- safe: reassuring but honest — say no known threats were found, not that it is \
-definitely safe.
+- safe: calm but NOT reassuring — say only that no known threats were found, make \
+clear this is not a guarantee, and that brand-new scam links often aren't flagged \
+yet, so they should stay alert if the link arrived unexpectedly or asks for details.
 Refer to the concrete reasons provided. Do not invent findings. Output only the \
 summary text, no preamble.
 """
