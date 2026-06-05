@@ -15,14 +15,26 @@ This document captures the pricing model and the reasoning behind it. The model 
 - A few checks per day (exact number tunable; start low, e.g. 5/day).
 - **No account required.** Frictionless — this is non-negotiable for reaching vulnerable users in the moment.
 - Core verdict + findings + AI plain-language explanation.
+- **Message analysis** (paste the whole message, not just the URL). See the note below — this was moved to free on 2026-06-05.
 - Rate-limited per IP; hard daily cap on AI calls (see abuse protection below).
+
+> **Why message analysis is free (decision 2026-06-05).** It is the only source
+> that catches social-engineering scams on brand-new URLs that no blocklist
+> knows yet — exactly the links that reach a vulnerable person before anything
+> else flags them. A scammy message paired with a clean-looking link was the one
+> case where the product gave a falsely reassuring "safe" verdict. Gating that
+> detection behind a paywall put it out of reach of the people the mission
+> exists to protect, so it now ships on the free tier. Cost stays controlled by
+> the global daily AI-call cap + the durable budget interlock, not by paywalling
+> the feature.
 
 ### Paid — small monthly fee
 - Unlimited checks.
-- Message analysis (paste the whole message, not just the URL).
 - Conversational follow-up ("what do I do now?").
 - Check history.
 - Requires a lightweight account.
+
+(Message analysis moved to the free tier — see the Free section above.)
 
 ### Business / Organization
 - For small businesses, schools, community orgs, support groups for the elderly, etc.

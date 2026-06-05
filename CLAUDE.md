@@ -103,11 +103,11 @@ Aggregate the sources into one score. A hit on Google Safe Browsing or VirusTota
 Full reasoning in `docs/PRICING.md`. The model is mission-first: a thin free tier reaches the vulnerable; paid + business tiers subsidize it.
 
 Build requirements for v1:
-- **Free tier:** a few checks per day (start at 5/day, make it a config constant), **no account required**, frictionless. Returns the full verdict + findings + AI explanation.
+- **Free tier:** a few checks per day (start at 5/day, make it a config constant), **no account required**, frictionless. Returns the full verdict + findings + AI explanation **and message analysis** (see below).
 - **Per-IP rate limiting** on `POST /api/check`. Return a clear, friendly message when exceeded (not a raw 429).
 - **Hard daily cap on total AI calls.** Once exceeded, fall back to deterministic-only: still return a verdict and findings, set a template `summary`, add `ai` to `sources_unavailable`. The AI bill must never be exposed to scripted abuse.
-- **Paid-tier features (gate them now, even if the account system is a stub):** unlimited checks, message analysis, conversational follow-up, check history. Structure the code so flipping a user's tier unlocks these — don't hardcode them on.
-- The message-analysis feature (`message` field on the request) is a paid feature; on the free tier, ignore the field or prompt to upgrade. Keep the API contract stable either way.
+- **Paid-tier features (gate them now, even if the account system is a stub):** unlimited checks, conversational follow-up, check history. Structure the code so flipping a user's tier unlocks these — don't hardcode them on.
+- **Message analysis (`message` field on the request) is FREE as of 2026-06-05.** It was originally paid-gated, but it's the only source that catches social-engineering scams on brand-new URLs no blocklist knows yet — gating it produced a falsely reassuring "safe" on clean-URL-but-scammy-message inputs, defeating the mission. It now runs on every tier; cost is bounded by the daily AI-call cap + the durable budget interlock, not by paywalling. Keep the API contract stable. (See `docs/PRICING.md`.)
 
 Make all limits config constants in one place so they're trivially tunable with real-world data.
 
