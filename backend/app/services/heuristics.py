@@ -22,7 +22,7 @@ from app.config import (
 from app.core.urls import NormalizedURL
 from app.models import Finding, Severity
 from app.models.schemas import SOURCE_HEURISTICS
-from app.seedlists import BRANDS, SUSPICIOUS_TLDS
+from app.seedlists import ABUSED_HOST_SUFFIXES, BRANDS, SUSPICIOUS_TLDS
 
 # Leetspeak / number-for-letter substitutions used to disguise brand names.
 _LEET_MAP = str.maketrans({"0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "$": "s", "@": "a"})
@@ -50,6 +50,7 @@ HEURISTIC_CODES: tuple[str, ...] = (
     "excessive_subdomains",
     "shortener",
     "suspicious_tld",
+    "abused_host_registry",
     "punycode",
     "homograph",
     "lookalike",
@@ -73,6 +74,11 @@ def load_brands() -> frozenset[str]:
 def load_suspicious_tlds() -> frozenset[str]:
     """Frequently-abused TLDs (see app/seedlists.py)."""
     return SUSPICIOUS_TLDS
+
+
+def load_abused_host_suffixes() -> frozenset[str]:
+    """Free, abuse-heavy third-level registries (see app/seedlists.py)."""
+    return ABUSED_HOST_SUFFIXES
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +139,38 @@ def check_suspicious_tld(url: NormalizedURL) -> Finding | None:
         f"Unusual website ending (.{final_label})",
         f"This site ends in .{final_label}, an ending that scammers use far more often than legitimate businesses.",
         "Be extra careful with uncommon endings, especially when you expected a well-known company.",
+    )
+
+
+def check_abused_host_registry(url: NormalizedURL) -> Finding | None:
+    """Flag hosts on free, abuse-heavy third-level registries (e.g. *.biz.ua).
+
+    The visible ending is a real country code, so check_suspicious_tld (which
+    only looks at the final label) misses these. We match on the host ENDING
+    rather than the parsed TLD suffix, because the Public Suffix List doesn't
+    treat these free spaces as suffixes — tldextract parses "x.biz.ua" with
+    suffix "ua" and registered domain "biz.ua", so a suffix-only check would
+    miss it. Dot-bounded matching avoids false hits like "notbiz.ua". Medium
+    signal: a free host alone isn't damning, but combined with other tricks
+    (e.g. stacked subdomains) it should push past 'safe'.
+    """
+    if url.is_ip or not url.host:
+        return None
+    host = url.host.lower()
+    matched = next(
+        (s for s in load_abused_host_suffixes() if host == s or host.endswith(f".{s}")),
+        None,
+    )
+    if matched is None:
+        return None
+    return _finding(
+        "abused_host_registry",
+        Severity.MEDIUM,
+        "Hosted on a free, frequently-abused domain service",
+        f"This address sits on '{matched}', a free domain space that scammers use heavily "
+        "because anyone can create an official-looking address on it at no cost.",
+        "A country-style ending doesn't make a site official. Free domain services are a common "
+        "home for scams — be cautious if you didn't expect this link.",
     )
 
 
@@ -371,6 +409,7 @@ def check(
         check_excessive_subdomains(url),
         check_shortener(url, was_shortener),
         check_suspicious_tld(url),
+        check_abused_host_registry(url),
         check_punycode_homograph(url),
         check_lookalike(url),
         check_domain_age(url, reg_date),

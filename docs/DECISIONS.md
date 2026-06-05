@@ -92,6 +92,33 @@ TTL; all-time totals never expire. Heuristic counter names are now a stable
 internal contract — rewording a finding's user-facing text is safe, but renaming
 a `code` resets that counter. Turning on the public counter is a one-flag change.
 
+### 2026-06-05 — Detect free, abuse-heavy third-level registries (`*.biz.ua` etc.)
+**Decision:** Add a heuristic, `check_abused_host_registry`, that flags hosts on
+free third-level domain spaces known to be abuse magnets — seeded with the free
+`.ua` registries `biz.ua`, `pp.ua`, `co.ua`, `in.ua` (`seedlists.ABUSED_HOST_SUFFIXES`).
+It is **medium** severity (heuristics-medium = 20 pts). Matching is on the host
+**ending** (`host == s or host.endswith("." + s)`), deliberately *not* the parsed
+TLD suffix: the Public Suffix List doesn't treat these free spaces as suffixes, so
+tldextract parses `x.biz.ua` as suffix `ua` / registered domain `biz.ua`, and the
+existing final-label-only `check_suspicious_tld` can never see them. The list is
+kept tight to clearly-free spaces; regulated/paid second levels (`com.ua`,
+`org.ua`, `net.ua`, `gov.ua`, `edu.ua`) are excluded to protect legitimate sites.
+**Why:** A real scam link — `kama.one.ass0028.happydayshub.biz.ua`, URL only, no
+message — was returning **safe** (score 20). Brand-new free hosts are invisible to
+blocklists, WHOIS is blind on these registries (no domain-age signal), and only
+`excessive_subdomains` (20) fired — below the 30 'suspicious' line. Recognising the
+free-host pattern adds a second medium so the **stacked-subdomains + free-host**
+combination reaches 40 → **suspicious**, while a bare free host alone (20) stays
+'safe' to limit false positives. Chose the targeted, high-confidence option over
+re-weighting thresholds or a high-entropy-label heuristic (deferred) precisely to
+avoid flagging legitimate complex URLs.
+**Consequences:** New stable heuristic code `abused_host_registry` (analytics
+counter follows automatically). Verdict for the morning case moves safe→suspicious;
+verified end-to-end. The seed list is the tuning knob — extend it as new free-abuse
+registries show up in real data; weighting stays the documented combination rule.
+Still does **not** make URL-only detection reliable on a clean custom domain — the
+strongest lever remains pasting the message (proven to escalate to dangerous).
+
 ## Template
 
 ### [DATE] — Title

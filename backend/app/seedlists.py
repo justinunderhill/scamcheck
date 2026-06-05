@@ -32,3 +32,15 @@ SUSPICIOUS_TLDS: frozenset[str] = frozenset({
     "stream", "support", "surf", "tk", "top", "trade", "webcam", "win", "work",
     "xyz", "zip",
 })
+
+# Free third-level domain registries that hand out names under a country-code
+# second level. The visible TLD (e.g. ".ua") is a legitimate ccTLD, so the
+# SUSPICIOUS_TLDS check (which only inspects the final label) never sees them —
+# but the *full* suffix is a free, abuse-heavy space scammers favour because a
+# host costs nothing and looks country-official. Matched against the WHOLE
+# suffix (e.g. "biz.ua"), not the final label. Kept deliberately tight to the
+# clearly-free spaces: regulated/paid second levels like com.ua, org.ua, net.ua,
+# gov.ua, edu.ua are EXCLUDED to avoid flagging legitimate businesses.
+ABUSED_HOST_SUFFIXES: frozenset[str] = frozenset({
+    "biz.ua", "pp.ua", "co.ua", "in.ua",
+})

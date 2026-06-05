@@ -61,6 +61,42 @@ def test_normal_tld_ok():
     assert h.check_suspicious_tld(normalize_url("https://example.com")) is None
 
 
+# --- abused free host registries (e.g. *.biz.ua) -------------------------
+
+def test_abused_host_registry_flagged():
+    # Free .ua third-level space: the PSL parses suffix as "ua", so this must be
+    # caught by host-ending matching, not the suffix-only check.
+    f = h.check_abused_host_registry(normalize_url("https://happydayshub.biz.ua"))
+    assert sev(f) == Severity.MEDIUM
+
+
+def test_legit_ua_second_level_not_abused():
+    # Regulated/paid .ua second levels must NOT be flagged (false-positive guard).
+    assert h.check_abused_host_registry(normalize_url("https://shop.rozetka.com.ua")) is None
+
+
+def test_abused_host_match_is_dot_bounded():
+    # "notbiz.ua" must not match the "biz.ua" entry.
+    assert h.check_abused_host_registry(normalize_url("https://notbiz.ua")) is None
+
+
+def test_free_subdomain_scam_reaches_suspicious():
+    # The real-world miss: a brand-new scam on a free host with stacked
+    # subdomains and no message. URL-only must now reach at least 'suspicious'.
+    from app.services.scoring import score_findings, verdict_for_score
+
+    url = normalize_url("kama.one.ass0028.happydayshub.biz.ua")
+    findings = h.check(
+        url,
+        registration_date_fn=lambda d: None,  # WHOIS blind on free .ua space
+        cert_info_fn=lambda u: CertInfo(checked=True, present=True, valid=True, expired=False),
+    )
+    codes = {f.code for f in findings}
+    assert "abused_host_registry" in codes
+    assert "excessive_subdomains" in codes
+    assert verdict_for_score(score_findings(findings)) != Verdict.SAFE
+
+
 # --- punycode / homograph ------------------------------------------------
 
 def test_punycode_flagged_high():
