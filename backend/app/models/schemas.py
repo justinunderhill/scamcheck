@@ -53,8 +53,8 @@ class CheckRequest(BaseModel):
     message: str | None = Field(
         default=None,
         description=(
-            "Optional full message the link arrived in. Paid-tier feature: "
-            "analyzed for social-engineering patterns when the tier allows."
+            "Optional full message the link arrived in. Analyzed for "
+            "social-engineering patterns (available on all tiers)."
         ),
     )
 

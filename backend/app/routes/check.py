@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["check"])
 _RATE_MSG = "You're checking links a little too quickly. Please wait a few seconds and try again."
 _DAILY_MSG = (
     f"You've used all {FREE_TIER_CHECKS_PER_DAY} of today's free checks. "
-    "Please come back tomorrow, or upgrade for unlimited checks."
+    "Please come back tomorrow."
 )
 
 
