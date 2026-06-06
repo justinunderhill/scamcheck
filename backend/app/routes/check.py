@@ -12,7 +12,7 @@ from app.config import FREE_TIER_CHECKS_PER_DAY, get_settings
 from app.core.tiers import features_for, resolve_tier
 from app.core.urls import InvalidURLError
 from app.models import CheckRequest, CheckResponse
-from app.models.schemas import SOURCE_HEURISTICS
+from app.models.schemas import SOURCE_AI_MESSAGE, SOURCE_HEURISTICS
 from app.services.analytics import analytics
 from app.services.limits import guard
 from app.services.pipeline import analyze
@@ -94,11 +94,13 @@ async def check(request: CheckRequest, http_request: Request) -> CheckResponse:
     heuristic_codes = [
         f.code for f in result.findings if f.source == SOURCE_HEURISTICS and f.code
     ]
+    message_findings = sum(1 for f in result.findings if f.source == SOURCE_AI_MESSAGE)
     await analytics.record_check(
         verdict=result.verdict.value,
         heuristic_codes=heuristic_codes,
         sources_checked=result.sources_checked,
         sources_unavailable=result.sources_unavailable,
         ai_cap_hit=ai_cap_hit,
+        message_findings=message_findings,
     )
     return result

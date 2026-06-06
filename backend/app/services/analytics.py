@@ -25,6 +25,7 @@ from app import config
 from app.config import get_settings
 from app.models.schemas import (
     SOURCE_AI,
+    SOURCE_AI_MESSAGE,
     SOURCE_GOOGLE,
     SOURCE_VIRUSTOTAL,
     SOURCE_WEB_RISK,
@@ -48,6 +49,13 @@ K_CAP_FREE = _k("cap", "free_tier")                          # free daily cap re
 K_CAP_AI = _k("cap", "ai_hardcap")                           # AI budget exhausted (fell back)
 K_AI_RAN = _k("ai", "ran")                                   # AI summary produced
 K_AI_TEMPLATE = _k("ai", "template")                         # template fallback used
+# Message-analysis layer, tracked separately from the summary layer above. Only
+# moved when the user actually submitted a message (so it measures the message
+# detector's own health, not how often people paste a message). "found" is the
+# subset of "ran" that flagged at least one social-engineering pattern.
+K_MSG_RAN = _k("message", "ran")                             # message analysis ran
+K_MSG_UNAVAILABLE = _k("message", "unavailable")             # supplied but couldn't run
+K_MSG_FOUND = _k("message", "found")                         # ran AND flagged something
 
 
 def checks_day_key(day: str) -> str:
@@ -189,12 +197,17 @@ class Analytics:
         sources_checked: Iterable[str],
         sources_unavailable: Iterable[str],
         ai_cap_hit: bool,
+        message_findings: int = 0,
     ) -> None:
         """Count one successful, valid check across every tracked dimension.
 
         Called only after a check has already succeeded, so invalid/failed
         requests never move the numbers. AI-ran vs template fallback is derived
         from whether the `ai` source landed in `sources_unavailable`.
+
+        `message_findings` is the number of message-analysis findings produced
+        (used only when that layer actually ran, to count the "flagged
+        something" subset). It is ignored when no message was submitted.
         """
         day_ttl = config.ANALYTICS_DAILY_TTL_SECONDS
         checked = set(sources_checked)
@@ -222,6 +235,18 @@ class Analytics:
         # AI hard-cap hit: the global daily AI budget was exhausted this request.
         if ai_cap_hit:
             increments.append((K_CAP_AI, 1, None))
+        # Message-analysis layer health (only when a message was submitted, i.e.
+        # the source landed in one of the lists). Separating this from the
+        # summary counters is what makes a "it said safe on a scam message"
+        # report answerable: was the message scanned at all, and did it flag
+        # anything? When it ran, the synthetic "couldn't check" finding is never
+        # present, so `message_findings` here only counts real scam signals.
+        if SOURCE_AI_MESSAGE in checked:
+            increments.append((K_MSG_RAN, 1, None))
+            if message_findings > 0:
+                increments.append((K_MSG_FOUND, 1, None))
+        elif SOURCE_AI_MESSAGE in unavailable:
+            increments.append((K_MSG_UNAVAILABLE, 1, None))
 
         await self._safe_apply(increments)
 
@@ -238,6 +263,9 @@ class Analytics:
             checks_day_key(_today()),
             K_AI_RAN,
             K_AI_TEMPLATE,
+            K_MSG_RAN,
+            K_MSG_UNAVAILABLE,
+            K_MSG_FOUND,
             K_CAP_FREE,
             K_CAP_AI,
         ]
@@ -269,6 +297,11 @@ class Analytics:
                 for name in _EXTERNAL_SOURCES
             },
             "ai": {"ran": g(K_AI_RAN), "template_fallback": g(K_AI_TEMPLATE)},
+            "message_analysis": {
+                "ran": g(K_MSG_RAN),
+                "unavailable": g(K_MSG_UNAVAILABLE),
+                "found": g(K_MSG_FOUND),
+            },
             "caps": {"free_tier_hit": g(K_CAP_FREE), "ai_hardcap_hit": g(K_CAP_AI)},
         }
 

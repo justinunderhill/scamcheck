@@ -21,6 +21,9 @@ from app.services.analytics import (
     K_CAP_AI,
     K_CAP_FREE,
     K_CHECKS_TOTAL,
+    K_MSG_FOUND,
+    K_MSG_RAN,
+    K_MSG_UNAVAILABLE,
     MemoryAnalyticsStore,
     RedisAnalyticsStore,
     analytics,
@@ -29,7 +32,12 @@ from app.services.analytics import (
     source_key,
     verdict_key,
 )
-from app.models.schemas import SOURCE_AI, SOURCE_VIRUSTOTAL, SOURCE_WEB_RISK
+from app.models.schemas import (
+    SOURCE_AI,
+    SOURCE_AI_MESSAGE,
+    SOURCE_VIRUSTOTAL,
+    SOURCE_WEB_RISK,
+)
 
 client = TestClient(app)
 
@@ -74,6 +82,74 @@ async def test_record_check_template_fallback_and_ai_cap():
     assert c[K_AI_TEMPLATE] == 1
     assert K_AI_RAN not in c
     assert c[K_CAP_AI] == 1
+
+
+async def test_message_analysis_ran_and_flagged_is_counted():
+    store = MemoryAnalyticsStore()
+    rec = Analytics(store)
+    await rec.record_check(
+        verdict="dangerous",
+        heuristic_codes=[],
+        sources_checked=["heuristics", SOURCE_AI_MESSAGE],
+        sources_unavailable=[],
+        ai_cap_hit=False,
+        message_findings=3,
+    )
+    c = store.counts
+    assert c[K_MSG_RAN] == 1
+    assert c[K_MSG_FOUND] == 1
+    assert K_MSG_UNAVAILABLE not in c
+
+
+async def test_message_analysis_ran_but_found_nothing():
+    store = MemoryAnalyticsStore()
+    rec = Analytics(store)
+    await rec.record_check(
+        verdict="safe",
+        heuristic_codes=[],
+        sources_checked=["heuristics", SOURCE_AI_MESSAGE],
+        sources_unavailable=[],
+        ai_cap_hit=False,
+        message_findings=0,
+    )
+    c = store.counts
+    assert c[K_MSG_RAN] == 1
+    assert K_MSG_FOUND not in c
+
+
+async def test_message_analysis_unavailable_is_counted():
+    store = MemoryAnalyticsStore()
+    rec = Analytics(store)
+    await rec.record_check(
+        verdict="suspicious",
+        heuristic_codes=[],
+        sources_checked=["heuristics"],
+        sources_unavailable=[SOURCE_AI_MESSAGE],
+        ai_cap_hit=False,
+        # The synthetic "couldn't check" finding is present, but the layer was
+        # unavailable, so it must NOT be miscounted as "found something".
+        message_findings=1,
+    )
+    c = store.counts
+    assert c[K_MSG_UNAVAILABLE] == 1
+    assert K_MSG_RAN not in c
+    assert K_MSG_FOUND not in c
+
+
+async def test_no_message_submitted_moves_no_message_counters():
+    store = MemoryAnalyticsStore()
+    rec = Analytics(store)
+    await rec.record_check(
+        verdict="safe",
+        heuristic_codes=[],
+        sources_checked=["heuristics"],
+        sources_unavailable=[],
+        ai_cap_hit=False,
+    )
+    c = store.counts
+    assert K_MSG_RAN not in c
+    assert K_MSG_UNAVAILABLE not in c
+    assert K_MSG_FOUND not in c
 
 
 async def test_record_check_dedupes_repeated_heuristic_codes():
@@ -174,6 +250,8 @@ async def test_snapshot_shape_and_values():
     assert set(snap["heuristics"]) == set(heuristics.HEURISTIC_CODES)
     assert snap["sources"][SOURCE_WEB_RISK]["available"] == 1
     assert snap["ai"]["ran"] == 1
+    # Message-analysis section is always present (zeros when no message ran).
+    assert snap["message_analysis"] == {"ran": 0, "unavailable": 0, "found": 0}
 
 
 async def test_public_counters_derived_from_same_data():
