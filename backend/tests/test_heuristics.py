@@ -80,6 +80,14 @@ def test_abused_host_match_is_dot_bounded():
     assert h.check_abused_host_registry(normalize_url("https://notbiz.ua")) is None
 
 
+def test_eu_org_free_subdomain_flagged():
+    # eu.org is a free subdomain space under the real .org TLD; the PSL parses
+    # the suffix as "org", so host-ending matching must catch it. This is the
+    # exact host that slipped through as a false "safe".
+    f = h.check_abused_host_registry(normalize_url("http://strw-v1-cl1.gogomailbali.it.eu.org/"))
+    assert sev(f) == Severity.MEDIUM
+
+
 def test_free_subdomain_scam_reaches_suspicious():
     # The real-world miss: a brand-new scam on a free host with stacked
     # subdomains and no message. URL-only must now reach at least 'suspicious'.

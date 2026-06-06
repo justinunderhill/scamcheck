@@ -33,14 +33,19 @@ SUSPICIOUS_TLDS: frozenset[str] = frozenset({
     "xyz", "zip",
 })
 
-# Free third-level domain registries that hand out names under a country-code
-# second level. The visible TLD (e.g. ".ua") is a legitimate ccTLD, so the
-# SUSPICIOUS_TLDS check (which only inspects the final label) never sees them —
-# but the *full* suffix is a free, abuse-heavy space scammers favour because a
-# host costs nothing and looks country-official. Matched against the WHOLE
-# suffix (e.g. "biz.ua"), not the final label. Kept deliberately tight to the
-# clearly-free spaces: regulated/paid second levels like com.ua, org.ua, net.ua,
-# gov.ua, edu.ua are EXCLUDED to avoid flagging legitimate businesses.
+# Free domain registries that hand out names under a shared second level. The
+# visible TLD (e.g. ".ua", ".org") is legitimate, so the SUSPICIOUS_TLDS check
+# (which only inspects the final label) never sees them — but the *full* suffix
+# is a free, abuse-heavy space scammers favour because a host costs nothing and
+# looks official. Matched against the host's ENDING (e.g. "biz.ua", "eu.org"),
+# not the final label. Kept deliberately tight to the clearly-free spaces:
+# regulated/paid second levels like com.ua, org.ua, net.ua, gov.ua, edu.ua are
+# EXCLUDED to avoid flagging legitimate businesses.
+#
+# eu.org: a free subdomain service (run by a nonprofit) under the real .org TLD.
+# tldextract parses "x.eu.org" with registered domain "eu.org" and suffix "org",
+# so — like the .ua spaces — only host-ending matching catches it. It's a heavy
+# home for throwaway phishing hosts (e.g. strw-v1-cl1.gogomailbali.it.eu.org).
 ABUSED_HOST_SUFFIXES: frozenset[str] = frozenset({
-    "biz.ua", "pp.ua", "co.ua", "in.ua",
+    "biz.ua", "pp.ua", "co.ua", "in.ua", "eu.org",
 })
