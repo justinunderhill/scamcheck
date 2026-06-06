@@ -190,6 +190,35 @@ gated on `ran` so the synthetic "couldn't check" finding (added on the
 unavailable path) is never counted as a real hit. Snapshot gains a
 `message_analysis` section. Full key table in `docs/ANALYTICS.md`.
 
+### 2026-06-06 — Keep Sonnet for message analysis, but slim its output
+**Decision:** After measuring, the message-analysis latency (~13s, the dominant
+cost of a check with a message) is **output volume**, not the model spinning up.
+Rather than switch models, keep `claude-sonnet-4-6` and make it emit far less:
+the prompt now asks for at most the **4 strongest** findings, terse one-clause
+`detail`/`tip` (≤18 words), and `AI_ANALYSIS_MAX_TOKENS` drops 700 → 400.
+Measured effect: scam cases fall from ~10–20s to ~7–8s while still producing a
+dangerous-grade finding set; legitimate messages were already fast and stay
+clean.
+**Why we didn't switch to Haiku.** A head-to-head (Sonnet 4.6 vs Haiku 4.5, real
+prompt, 7 scams + 4 legitimate messages) showed Haiku is ~3× faster and **caught
+every scam** — but it **false-positives on legitimate urgent messages**: it
+flagged a genuine bank one-time-passcode as *dangerous* (3 findings, 2 high) and
+a real "sale ends midnight" promo, where Sonnet correctly stayed silent. For a
+consumer-protection tool, crying wolf on a real 2FA code is its own harm (it
+teaches vulnerable users to distrust legitimate security messages). The quality
+we'd lose with Haiku isn't scam recall — it's false-positive discrimination —
+so we kept Sonnet and attacked the *real* cost (verbosity) instead. The prompt
+also gained an explicit "a real passcode / delivery update / ordinary marketing
+deadline is NOT a scam; return []" guard to keep that discrimination crisp.
+**Consequences:** ~2× faster message analysis with no model change, no contract
+change (still `title`/`detail`/`tip`), and the documented "stronger model for
+message analysis" choice intact. Findings are now capped at 4 (was 5) — a real
+scam trips the same few patterns, so the cap costs nothing the verdict needs.
+If ~7s is still too slow later, the remaining lever is Haiku **with**
+prompt-hardening + a re-run of this comparison to confirm the false positives
+are gone — not a blind switch. Streaming the verdict first (perceived latency)
+stays available as a non-model option.
+
 ## Template
 
 ### [DATE] — Title

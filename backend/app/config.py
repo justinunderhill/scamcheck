@@ -211,13 +211,19 @@ URL_FETCH_USER_AGENT = "ScamCheck/0.1 (+https://scamcheck.example; link-safety-c
 # Fast, cheap model for the per-request explanation layer.
 AI_EXPLAIN_MODEL = "claude-haiku-4-5-20251001"
 AI_EXPLAIN_MAX_TOKENS = 400
-# Stronger model reserved for message analysis (and v2 page analysis).
+# Stronger model reserved for message analysis (and v2 page analysis). Sonnet is
+# kept for its false-positive discrimination (a measured win over Haiku on
+# legitimate-but-urgent messages — see docs/DECISIONS.md 2026-06-06). The latency
+# cost is its output volume, so the prompt asks for terse findings and the token
+# ceiling is tight; that ~halves the call without changing the model.
 AI_ANALYSIS_MODEL = "claude-sonnet-4-6"
-AI_ANALYSIS_MAX_TOKENS = 700
+AI_ANALYSIS_MAX_TOKENS = 400
 # Network timeout for any single AI call.
 AI_REQUEST_TIMEOUT_SECONDS = 12.0
 # explain() outputs are cached on a hash of (verdict, findings) so identical
 # results don't re-bill (see docs/PRICING.md cost control).
 AI_EXPLAIN_CACHE_SIZE = 512
-# Cap how many findings message analysis may add (keeps output bounded).
-AI_MESSAGE_MAX_FINDINGS = 5
+# Cap how many findings message analysis may add. Also bounds output volume
+# (latency): a real scam trips the same few patterns, so the 4 strongest say
+# everything the verdict needs without making the model write a long array.
+AI_MESSAGE_MAX_FINDINGS = 4

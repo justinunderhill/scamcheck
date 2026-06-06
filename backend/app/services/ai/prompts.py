@@ -52,12 +52,16 @@ social-engineering / scam patterns, such as:
 redelivery fees, refund/overpayment scams
 - a mismatch between who the message claims to be and the actual link's domain
 
-Return ONLY a JSON array (possibly empty) of findings. Each finding is an object:
+Return ONLY a JSON array (possibly empty) of findings — at most the FOUR \
+strongest, most serious first. Each finding is an object:
 {"severity": "low"|"medium"|"high", "title": "...", "detail": "...", "tip": "..."}
-- title: short, plain-language label
-- detail: one sentence on what you noticed in THIS message
-- tip: one sentence teaching the user the general lesson
-Only report patterns actually present. If nothing stands out, return []. Never \
+- title: short plain-language label (max ~6 words)
+- detail: ONE short sentence on what you noticed in THIS message (max ~18 words)
+- tip: ONE short sentence with the general lesson (max ~18 words)
+Be concise — keep every string tight; short responses are faster and clearer. \
+Report only patterns actually present (do not pad to four). A genuine message — \
+a real one-time passcode, a real delivery update, ordinary marketing with a \
+deadline — is NOT a scam; if nothing actually stands out, return []. Never \
 output anything except the JSON array.
 """
 )

@@ -53,7 +53,7 @@ Grounded Q&A after a verdict ("what do I do now?", "I already clicked — what n
 ## Implementation notes
 - Use the official `anthropic` Python SDK. Key from env (`ANTHROPIC_API_KEY`), backend only.
 - Keep prompts in a dedicated `prompts/` area or constants module so they're reviewable and testable — don't bury them inline.
-- **Cost control:** cache `explain` outputs keyed by a hash of (verdict, sorted findings) so identical results don't re-bill. Set sensible `max_tokens`. Pick the cheapest model that gives good explanations; only `analyze_page` warrants a stronger model.
+- **Cost control:** cache `explain` outputs keyed by a hash of (verdict, sorted findings) so identical results don't re-bill. Set sensible `max_tokens`. Use a fast, cheap model for `explain`; message analysis runs on a stronger model (Sonnet) for its false-positive discrimination — but keep its **output terse** (≤4 findings, short `detail`/`tip`, tight token ceiling), since output volume, not the model, is the latency cost (measured — see `docs/DECISIONS.md` 2026-06-06).
 - **Privacy:** the pasted message may contain personal data. Do not persist it. Strip it from logs. Send only what's needed to the model.
 - **Prompt-injection safety:** the URL, page content, and pasted message are UNTRUSTED input. Never let them alter the system instructions or the escalate-only rule. Treat them strictly as data to analyze, never as commands.
 - Mock the AI calls in tests — CI never hits the real API.
