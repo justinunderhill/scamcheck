@@ -106,9 +106,11 @@ def _render_explain_input(
 async def analyze_message(message_text: str, final_url: str) -> list[Finding]:
     """Detect social-engineering patterns in a pasted message.
 
-    Returns normalized ai_message_analysis findings (can be empty). On any AI
-    failure, degrades to [] so the request still completes. Never persists the
-    message.
+    Returns normalized ai_message_analysis findings; an empty list means the
+    analysis RAN and found nothing (or returned nothing parseable). A genuine
+    failure to run raises `AIUnavailable` — the caller must distinguish "checked,
+    clean" from "couldn't check" so it never presents an unscanned message as a
+    reassuring all-clear (see pipeline). Never persists the message.
     """
     message_text = (message_text or "").strip()
     if not message_text:
@@ -123,15 +125,14 @@ async def analyze_message(message_text: str, final_url: str) -> list[Finding]:
         "<<<USER_MESSAGE_END>>>\n\n"
         "Return only the JSON array of findings."
     )
-    try:
-        raw = await complete(
-            model=AI_ANALYSIS_MODEL,
-            system=prompts.MESSAGE_ANALYSIS_SYSTEM,
-            user=user,
-            max_tokens=AI_ANALYSIS_MAX_TOKENS,
-        )
-    except AIUnavailable:
-        return []
+    # AIUnavailable propagates: the pipeline records the message layer as
+    # unavailable rather than silently treating a failed call as "checked".
+    raw = await complete(
+        model=AI_ANALYSIS_MODEL,
+        system=prompts.MESSAGE_ANALYSIS_SYSTEM,
+        user=user,
+        max_tokens=AI_ANALYSIS_MAX_TOKENS,
+    )
 
     return _parse_message_findings(raw)
 

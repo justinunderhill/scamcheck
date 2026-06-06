@@ -118,12 +118,16 @@ async def test_analyze_message_empty_input_skips(monkeypatch):
     assert await ai.analyze_message("   ", "https://x.example") == []
 
 
-async def test_analyze_message_degrades_to_empty_on_failure(monkeypatch):
+async def test_analyze_message_raises_on_ai_failure(monkeypatch):
+    # A genuine failure to run must PROPAGATE (not degrade to []), so the
+    # pipeline can tell "checked, clean" from "couldn't check" and avoid
+    # presenting an unscanned message as a reassuring all-clear.
     async def boom(**_kwargs):
         raise AIUnavailable("rate limited")
 
     monkeypatch.setattr(ai, "complete", boom)
-    assert await ai.analyze_message("something", "https://x.example") == []
+    with pytest.raises(AIUnavailable):
+        await ai.analyze_message("something", "https://x.example")
 
 
 async def test_analyze_message_garbage_output_is_empty(monkeypatch):

@@ -220,3 +220,53 @@ async def test_message_ignored_on_free_tier(with_ai, monkeypatch):
         "https://example.com", message="something", allow_message_analysis=False
     )
     assert "ai_message_analysis" not in result.sources_checked
+
+
+@respx.mock
+async def test_unavailable_message_layer_blocks_safe_allclear(with_ai, monkeypatch):
+    # The real-world miss: user pastes a scam message, but the message layer is
+    # down. A clean URL must NOT come back "safe" — we flag that we couldn't
+    # check the message and hold the verdict out of the green all-clear band.
+    _mock_web_risk(False)
+    _mock_vt_clean()
+
+    async def fake_explain(verdict, score, findings):
+        return "summary"
+
+    async def boom(message, final_url):
+        raise pipeline.AIUnavailable("message layer down")
+
+    monkeypatch.setattr(pipeline.ai, "explain", fake_explain)
+    monkeypatch.setattr(pipeline.ai, "analyze_message", boom)
+
+    result = await pipeline.analyze(
+        "https://example.com",
+        message="Your account is suspended! Update payment within 48 hours.",
+        allow_message_analysis=True,
+    )
+
+    assert "ai_message_analysis" in result.sources_unavailable
+    assert "ai_message_analysis" not in result.sources_checked
+    # The gap is surfaced as a finding, and the verdict is no longer "safe".
+    assert any(
+        f.source == "ai_message_analysis" and "couldn't check" in f.title.lower()
+        for f in result.findings
+    )
+    assert result.verdict is not Verdict.SAFE
+
+
+@respx.mock
+async def test_no_unchecked_finding_when_no_message(with_ai, monkeypatch):
+    # The unchecked-message finding must only appear when a message was actually
+    # pasted — a URL-only check with the AI layer down stays clean of it.
+    _mock_web_risk(False)
+    _mock_vt_clean()
+
+    async def boom(verdict, score, findings):
+        raise pipeline.AIUnavailable("down")
+
+    monkeypatch.setattr(pipeline.ai, "explain", boom)
+
+    result = await pipeline.analyze("https://example.com", allow_message_analysis=True)
+    assert not any(f.source == "ai_message_analysis" for f in result.findings)
+    assert result.verdict is Verdict.SAFE

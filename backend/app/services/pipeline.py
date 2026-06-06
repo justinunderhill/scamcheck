@@ -24,7 +24,7 @@ import httpx
 
 from app.config import URL_FETCH_USER_AGENT, get_settings
 from app.core.urls import expand_url, normalize_url
-from app.models import CheckResponse, Finding
+from app.models import CheckResponse, Finding, Severity
 from app.models.schemas import SOURCE_AI, SOURCE_AI_MESSAGE, SOURCE_HEURISTICS
 from app.services import ai
 from app.services import heuristics
@@ -89,13 +89,28 @@ async def analyze(
             sources_checked.append(name)
             findings.extend(source_findings)
 
-    # --- AI message analysis (paid-gated; can only add findings) ---
+    # --- AI message analysis (free for all tiers; can only add findings) ---
     if message and allow_message_analysis:
         if settings.ai_enabled and allow_ai_summary:
-            findings.extend(await ai.analyze_message(message, final.url))
-            sources_checked.append(SOURCE_AI_MESSAGE)
+            try:
+                findings.extend(await ai.analyze_message(message, final.url))
+                sources_checked.append(SOURCE_AI_MESSAGE)
+            except AIUnavailable:
+                # Failed mid-call — treat as unavailable, not a clean "checked".
+                sources_unavailable.append(SOURCE_AI_MESSAGE)
         else:
             sources_unavailable.append(SOURCE_AI_MESSAGE)
+
+        # The user pasted a message expressly so we'd scan it for scam wording.
+        # If that layer couldn't run, we did NOT inspect the single most
+        # important signal — and a brand-new scam URL no blocklist knows yet
+        # will otherwise sail through the deterministic sources as "safe". A
+        # calm green all-clear here is the exact falsely-reassuring failure the
+        # free message analysis exists to prevent (CLAUDE.md). Record the gap as
+        # a finding so the user sees it, and let its weight hold the verdict out
+        # of the "safe" band rather than silently downgrading.
+        if SOURCE_AI_MESSAGE in sources_unavailable:
+            findings.append(_message_unchecked_finding())
 
     # --- Aggregate (after any AI-added findings) ---
     score = score_findings(findings)
@@ -124,6 +139,31 @@ async def analyze(
         findings=findings,
         sources_checked=sources_checked,
         sources_unavailable=sources_unavailable,
+    )
+
+
+def _message_unchecked_finding() -> Finding:
+    """Surface that a pasted message went un-analyzed (AI layer unavailable).
+
+    Medium severity is deliberate: on its own it weighs enough to lift an
+    otherwise-clean link out of the "safe" band into "suspicious", so the user
+    never sees a green all-clear for a message we couldn't actually scan. We'd
+    rather over-warn than reassure someone about an unchecked scam message.
+    """
+    return Finding(
+        source=SOURCE_AI_MESSAGE,
+        severity=Severity.MEDIUM,
+        title="We couldn't check the message you pasted",
+        detail=(
+            "Our message analysis was temporarily unavailable, so we couldn't scan the "
+            "text you pasted for scam wording. This result is based only on the link "
+            "itself — treat it as incomplete, not as an all-clear."
+        ),
+        tip=(
+            "Be wary of messages that pressure you to act fast, threaten to suspend or "
+            "delete your account, or ask for payment or passwords. Try checking again in "
+            "a little while."
+        ),
     )
 
 
