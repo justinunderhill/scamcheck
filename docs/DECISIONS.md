@@ -81,6 +81,7 @@ analytics must never degrade the user's result.
 | `stats:heuristic:<code>` | Times a named heuristic fired (`raw_ip`, `domain_age`, …) | never |
 | `stats:source:<name>:<available\|unavailable>` | External source uptime (`web_risk`, `virustotal`, `google_safe_browsing`) | never |
 | `stats:ai:ran` / `stats:ai:template` | AI summary produced vs template fallback | never |
+| `stats:message:ran` / `:unavailable` / `:found` | Message-analysis layer: ran / supplied-but-couldn't-run / ran-and-flagged (added 2026-06-06) | never |
 | `stats:cap:free_tier` | Requests rejected by the per-IP daily free cap | never |
 | `stats:cap:ai_hardcap` | Requests where the global daily AI budget was exhausted | never |
 
@@ -118,6 +119,76 @@ verified end-to-end. The seed list is the tuning knob — extend it as new free-
 registries show up in real data; weighting stays the documented combination rule.
 Still does **not** make URL-only detection reliable on a clean custom domain — the
 strongest lever remains pasting the message (proven to escalate to dangerous).
+**Update 2026-06-06:** `eu.org` joined `ABUSED_HOST_SUFFIXES` after a second
+real report (`strw-v1-cl1.gogomailbali.it.eu.org`). It's a free subdomain
+service under the real `.org` TLD, so tldextract parses it as registered domain
+`eu.org` / suffix `org` — the same host-ending match (not suffix) catches it.
+
+### 2026-06-06 — An unscanned pasted message must never read as "safe"
+**Decision:** When the user supplied a `message` (so they expressly wanted it
+scanned) but the message-analysis layer could not run, the result no longer
+falls back to a quiet "safe". Two coupled changes: (1) `ai.analyze_message` now
+lets `AIUnavailable` **propagate** instead of swallowing it and returning `[]`,
+so the pipeline can tell "ran, found nothing" from "couldn't run"; (2) when the
+layer is unavailable *and a message was supplied*, the pipeline adds a synthetic
+medium finding, **"We couldn't check the message you pasted."** Its weight
+(ai_message_analysis-medium = 30) lifts an otherwise-clean link out of the
+`safe` band into `suspicious` through the normal escalate-only scoring — no
+special-case verdict override.
+**Why:** This is the falsely-reassuring failure the free message analysis exists
+to prevent. The single most important signal for brand-new scam URLs is the
+message; if we silently skip it and still show a green all-clear, we actively
+mislead the worried user who pasted it. Surfacing the gap (and erring toward
+caution) is the honest behaviour. Synthetic-finding-via-scoring keeps the
+escalate-only invariant mechanical rather than a special case.
+**Consequences:** A check with a message is at-least-`suspicious` whenever the
+AI layer is down — deliberately preferring false-suspicious over false-safe.
+The frontend already surfaces `ai_message_analysis` in `sources_unavailable`
+("Couldn't reach message analysis"); the finding now also drives the verdict.
+The `found` analytics counter is gated on the layer having actually run, so the
+synthetic finding is never miscounted as a real social-engineering hit.
+
+### 2026-06-06 — Bound WHOIS; run message analysis concurrently
+**Decision:** Hard-cap the WHOIS domain-age lookup with a new
+`HEURISTIC_WHOIS_TIMEOUT_SECONDS` (4s), enforced **twice**: a pinned default
+socket timeout inside `lookup_registration_date` (so the worker thread can't
+hang) and an `asyncio.wait_for` in the pipeline (a ceiling on request latency
+regardless of the thread). Separately, move AI **message analysis into the same
+`asyncio.gather`** as the heuristic lookups and blocklist calls instead of
+running it after them; WHOIS and the cert check are pulled out as bounded async
+tasks whose results are injected into a now-pure `heuristics.check`.
+**Why:** Live testing traced the real "scam came back safe" miss to **latency,
+not detection logic.** `python-whois` enforces no timeout and blocks on the
+socket; on the dead/new domains scammers use it hangs for tens of seconds. With
+message analysis running *after* the deterministic gather, that hang serialized
+in front of it and squeezed the Sonnet call (12s timeout) until it failed —
+so message analysis dropped out precisely on real scam links (reproduced:
+`eu.org` URL + full message took 15–41s and intermittently 500'd or lost the
+message layer, while either input alone was fine). Bounding WHOIS and
+parallelizing the AI call removes the squeeze; the user waits for the slowest
+source, not the sum (the CLAUDE.md concurrency rule).
+**Consequences:** `heuristics.check` no longer does its own network I/O in the
+hot path — the pipeline gathers WHOIS/cert with timeouts and injects them.
+A stalled whois server degrades to "unknown domain age" instead of stalling or
+500'ing the request. Both timeouts are config constants for tuning. Remaining
+latency on cold starts is now dominated by serverless init + model latency, not
+the WHOIS hang.
+
+### 2026-06-06 — Message-analysis health counters
+**Decision:** Add three aggregate counters for the message-analysis layer,
+tracked separately from the `ai` summary counters: `stats:message:ran`,
+`stats:message:unavailable`, `stats:message:found` (ran AND flagged ≥1 pattern).
+They move **only when a message was actually submitted**, so they measure the
+detector's health, not how often users paste a message.
+**Why:** When a "it said safe on a scam message" report came in, the snapshot
+could show the *summary* layer's health but had no signal for the *message*
+layer — so we couldn't tell whether the message was scanned at all, scanned and
+found nothing, or never ran. That blind spot turned a one-lookup diagnosis into
+inference. These counters make the next such report answerable directly.
+**Consequences:** `record_check` takes a `message_findings` count; `found` is
+gated on `ran` so the synthetic "couldn't check" finding (added on the
+unavailable path) is never counted as a real hit. Snapshot gains a
+`message_analysis` section. Full key table in `docs/ANALYTICS.md`.
 
 ## Template
 

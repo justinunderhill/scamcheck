@@ -27,14 +27,16 @@ Each finding is a dict/object:
 | Excessive subdomains | Many dot-separated labels hiding the real domain | medium |
 | URL shortener | Host is a known shortener — expand and re-check the destination | low (info) |
 | Suspicious TLD | TLD frequently abused in scams | low–medium |
+| Abused free-host registry | Host sits on a free, abuse-heavy shared space (`*.biz.ua`, `*.eu.org`, …) — matched on the host *ending*, since the PSL doesn't treat these as suffixes (see `docs/DECISIONS.md`, 2026-06-05/06) | medium |
 | No/invalid HTTPS | Missing cert or invalid/expired | medium |
 | Punycode / homograph | Non-ASCII lookalike characters in the domain | high |
 | Embedded credentials / `@` in URL | URL contains userinfo before an `@`, so the real host is what follows the `@` (e.g. `instagram.com@evil.com` goes to evil.com) | high |
 
 ## Notes
 - Pure logic — fully unit-testable. Write tests covering each check with safe and unsafe examples.
-- Seed lists (brands, shorteners, suspicious TLDs) live in small data files so they're easy to extend. Document them in `docs/DECISIONS.md`.
+- Seed lists (brands, shorteners, suspicious TLDs, abused host suffixes) live in `app/seedlists.py` so they're easy to extend. Document them in `docs/DECISIONS.md`.
 - Be careful with lookalike detection: avoid false positives on legitimate domains that simply contain a brand word.
+- **The two network-backed checks (WHOIS domain age, TLS cert) take their gathered data as arguments** so the checks stay pure/offline-testable; the pipeline fetches them as bounded async tasks. WHOIS in particular **must** be hard-bounded (`HEURISTIC_WHOIS_TIMEOUT_SECONDS`): `python-whois` has no timeout and blocks on the socket, and the dead/new domains scams use make it hang — which previously starved the concurrent AI message-analysis call (see `docs/DECISIONS.md`, 2026-06-06).
 
 ## Detailed: Embedded credentials / `@` in URL (high priority)
 

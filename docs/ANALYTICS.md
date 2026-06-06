@@ -59,6 +59,7 @@ successful check (`record_check`) and once per free-tier cap rejection
 | **Which heuristics fired** | `stats:heuristic:<code>` — one per heuristic, by stable name |
 | **External source availability** | `stats:source:<name>:available` and `…:unavailable` for `web_risk`, `virustotal`, `google_safe_browsing` |
 | **AI ran vs template fallback** | `stats:ai:ran`, `stats:ai:template` |
+| **Message-analysis health** | `stats:message:ran`, `stats:message:unavailable`, `stats:message:found` |
 | **Free-tier cap hits** | `stats:cap:free_tier` |
 | **AI hard-cap hits** | `stats:cap:ai_hardcap` |
 
@@ -69,8 +70,8 @@ response). The full set lives in `HEURISTIC_CODES`
 (`backend/app/services/heuristics.py`):
 
 `embedded_credentials`, `raw_ip`, `excessive_subdomains`, `shortener`,
-`suspicious_tld`, `punycode`, `homograph`, `lookalike`, `domain_age`,
-`no_https`, `cert_problem`.
+`suspicious_tld`, `abused_host_registry`, `punycode`, `homograph`, `lookalike`,
+`domain_age`, `no_https`, `cert_problem`.
 
 These names are an internal contract for the counters. The user-facing wording
 of a finding (`title` / `detail` / `tip`) can change freely; renaming a `code`,
@@ -82,6 +83,26 @@ Derived from whether the `ai` summary source landed in `sources_unavailable`: if
 it did, the request used the deterministic template summary
 (`stats:ai:template`); otherwise the AI explanation ran (`stats:ai:ran`). This
 covers every fallback reason (no key, interlock off, budget exhausted).
+
+### Message-analysis health
+
+Tracked separately from the `ai` summary counters above, because message
+analysis is its own detector with its own failure modes. These move **only when
+the user actually submitted a message** (so they measure the layer's health, not
+how often people paste one):
+
+- `stats:message:ran` — the layer ran (message supplied, AI active).
+- `stats:message:unavailable` — a message was supplied but the layer couldn't
+  run (AI off, interlock, hard cap, or a failed call). This is the signal that a
+  pasted message went unscanned — paired with the synthetic "We couldn't check
+  the message you pasted" finding that keeps the verdict out of `safe`.
+- `stats:message:found` — the layer ran **and** flagged ≥1 social-engineering
+  pattern. Gated on `ran`, so the synthetic unavailable-path finding is never
+  miscounted as a real hit.
+
+Together they answer the question the older counters couldn't: when a checked
+message looks like it slipped through, was it scanned at all, scanned and clean,
+or never run? Added 2026-06-06 after exactly that diagnosis gap.
 
 ### The two cap counters
 
@@ -124,6 +145,7 @@ Example response:
     "google_safe_browsing": { "available": 0, "unavailable": 0 }
   },
   "ai": { "ran": 8200, "template_fallback": 4640 },
+  "message_analysis": { "ran": 3100, "unavailable": 90, "found": 2400 },
   "caps": { "free_tier_hit": 410, "ai_hardcap_hit": 35 }
 }
 ```

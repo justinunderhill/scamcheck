@@ -27,6 +27,21 @@ Only runs if the user pasted a message. Detects social-engineering patterns:
 
 Returns normalized findings (`source: "ai_message_analysis"`) that feed into scoring like any other source. Can raise severity to `high`.
 
+**Failure is not silence (decided 2026-06-06).** An empty list means the layer
+*ran and found nothing*; a genuine failure to run **raises `AIUnavailable`** and
+must not be swallowed into `[]`. The caller (pipeline) needs to tell those apart:
+when a message was supplied but the layer couldn't run, it records
+`ai_message_analysis` in `sources_unavailable` **and adds a medium "We couldn't
+check the message you pasted" finding**, so an unscanned message can never read
+as a reassuring "safe" (its weight pushes the verdict to at least `suspicious`).
+This is the escalate-only rule applied to *absence* of analysis: we'd rather
+over-warn than reassure about a message we didn't actually read.
+
+**Runs concurrently (decided 2026-06-06).** Message analysis depends only on the
+message + final URL, so it joins the same `asyncio.gather` as the heuristics and
+blocklist calls rather than waiting behind them — a slow WHOIS lookup must never
+starve it (see `docs/DECISIONS.md`).
+
 ## v2 functions (define interfaces now, stub bodies)
 
 ### 3. `analyze_page(safe_capture) -> list[finding]`
