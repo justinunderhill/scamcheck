@@ -22,7 +22,12 @@ import asyncio
 
 import httpx
 
-from app.config import URL_FETCH_USER_AGENT, get_settings
+from app.config import (
+    CERT_CHECK_TIMEOUT_SECONDS,
+    HEURISTIC_WHOIS_TIMEOUT_SECONDS,
+    URL_FETCH_USER_AGENT,
+    get_settings,
+)
 from app.core.urls import expand_url, normalize_url
 from app.models import CheckResponse, Finding, Severity
 from app.models.schemas import SOURCE_AI, SOURCE_AI_MESSAGE, SOURCE_HEURISTICS
@@ -67,19 +72,36 @@ async def analyze(
     sources_checked: list[str] = []
     sources_unavailable: list[str] = []
 
+    # Everything that needs the network runs concurrently so the user waits only
+    # as long as the slowest source — never the sum (CLAUDE.md). The AI message
+    # analysis joins this batch rather than running after it: it depends only on
+    # the message and the final URL, so making it wait behind a slow WHOIS lookup
+    # was what squeezed it into timing out on exactly the dead/new domains scams
+    # use. The two blocking heuristic lookups (WHOIS, cert) are each hard-bounded
+    # so a stalled server can't delay or break the request.
+    message_wanted = bool(message) and allow_message_analysis
+    ai_active = settings.ai_enabled and allow_ai_summary
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(10.0),
         headers={"User-Agent": URL_FETCH_USER_AGENT},
     ) as client:
-        heuristics_task = asyncio.to_thread(
-            heuristics.check, final, was_shortener=expansion.was_shortener
-        )
-        external_tasks = [_run_source(mod, final, client) for mod in _EXTERNAL_SOURCES]
-        heuristic_findings, *external_results = await asyncio.gather(
-            heuristics_task, *external_tasks
+        reg_date, cert, external_results, message_outcome = await asyncio.gather(
+            _whois_registration_date(final),
+            _cert_info(final),
+            _gather_external(final, client),
+            _run_message_analysis(final.url, message, message_wanted, ai_active),
         )
 
-    findings.extend(heuristic_findings)
+    # Heuristics is now pure (both network lookups were resolved above) — run it
+    # directly with the gathered data injected.
+    findings.extend(
+        heuristics.check(
+            final,
+            was_shortener=expansion.was_shortener,
+            registration_date_fn=lambda _domain: reg_date,
+            cert_info_fn=lambda _url: cert,
+        )
+    )
     sources_checked.append(SOURCE_HEURISTICS)
 
     for name, source_findings, error in external_results:
@@ -89,28 +111,24 @@ async def analyze(
             sources_checked.append(name)
             findings.extend(source_findings)
 
-    # --- AI message analysis (free for all tiers; can only add findings) ---
-    if message and allow_message_analysis:
-        if settings.ai_enabled and allow_ai_summary:
-            try:
-                findings.extend(await ai.analyze_message(message, final.url))
-                sources_checked.append(SOURCE_AI_MESSAGE)
-            except AIUnavailable:
-                # Failed mid-call — treat as unavailable, not a clean "checked".
-                sources_unavailable.append(SOURCE_AI_MESSAGE)
-        else:
-            sources_unavailable.append(SOURCE_AI_MESSAGE)
+    # --- AI message analysis result (free for all tiers; can only add findings) ---
+    message_state, message_findings = message_outcome
+    if message_state == "ran":
+        findings.extend(message_findings)
+        sources_checked.append(SOURCE_AI_MESSAGE)
+    elif message_state == "unavailable":
+        sources_unavailable.append(SOURCE_AI_MESSAGE)
 
-        # The user pasted a message expressly so we'd scan it for scam wording.
-        # If that layer couldn't run, we did NOT inspect the single most
-        # important signal — and a brand-new scam URL no blocklist knows yet
-        # will otherwise sail through the deterministic sources as "safe". A
-        # calm green all-clear here is the exact falsely-reassuring failure the
-        # free message analysis exists to prevent (CLAUDE.md). Record the gap as
-        # a finding so the user sees it, and let its weight hold the verdict out
-        # of the "safe" band rather than silently downgrading.
-        if SOURCE_AI_MESSAGE in sources_unavailable:
-            findings.append(_message_unchecked_finding())
+    # The user pasted a message expressly so we'd scan it for scam wording. If
+    # that layer couldn't run, we did NOT inspect the single most important
+    # signal — and a brand-new scam URL no blocklist knows yet will otherwise
+    # sail through the deterministic sources as "safe". A calm green all-clear
+    # here is the exact falsely-reassuring failure the free message analysis
+    # exists to prevent (CLAUDE.md). Record the gap as a finding so the user
+    # sees it, and let its weight hold the verdict out of the "safe" band rather
+    # than silently downgrading.
+    if SOURCE_AI_MESSAGE in sources_unavailable:
+        findings.append(_message_unchecked_finding())
 
     # --- Aggregate (after any AI-added findings) ---
     score = score_findings(findings)
@@ -176,3 +194,58 @@ async def _run_source(module, url, client) -> tuple[str, list[Finding], Exceptio
         return module.NAME, [], exc
     except Exception as exc:  # noqa: BLE001 - never let one source break the request
         return module.NAME, [], exc
+
+
+async def _gather_external(url, client) -> list[tuple[str, list[Finding], Exception | None]]:
+    """Run all external blocklist sources concurrently."""
+    return list(await asyncio.gather(*(_run_source(mod, url, client) for mod in _EXTERNAL_SOURCES)))
+
+
+async def _whois_registration_date(url):
+    """Bounded WHOIS lookup. Returns the creation date, or None on timeout/error.
+
+    `lookup_registration_date` already pins a socket timeout; wrapping it in
+    `wait_for` is the hard ceiling on how long a stalled whois server can hold up
+    the request, independent of whether the orphaned worker thread has returned.
+    """
+    if url.is_ip:
+        return None
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(heuristics.lookup_registration_date, url.registered_domain),
+            timeout=HEURISTIC_WHOIS_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - timeout/error both degrade to "unknown age"
+        return None
+
+
+async def _cert_info(url):
+    """Bounded TLS certificate check. Returns CertInfo, or None to skip/degrade."""
+    if url.scheme != "https":
+        return None
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(heuristics.get_cert_info, url),
+            timeout=CERT_CHECK_TIMEOUT_SECONDS + 2.0,  # outer bound; the socket has its own
+        )
+    except Exception:  # noqa: BLE001 - timeout/error: don't raise a false alarm
+        return None
+
+
+async def _run_message_analysis(
+    final_url: str, message: str | None, wanted: bool, ai_active: bool
+) -> tuple[str, list[Finding]]:
+    """Run message analysis concurrently with the other sources.
+
+    Returns (state, findings) where state is "ran", "unavailable", or "skipped".
+    "unavailable" distinguishes a genuine failure-to-run (so the caller can warn
+    the user) from "skipped" (no message supplied / not permitted).
+    """
+    if not wanted:
+        return "skipped", []
+    if not ai_active:
+        return "unavailable", []
+    try:
+        return "ran", await ai.analyze_message(message or "", final_url)
+    except AIUnavailable:
+        return "unavailable", []

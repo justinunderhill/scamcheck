@@ -256,6 +256,51 @@ async def test_unavailable_message_layer_blocks_safe_allclear(with_ai, monkeypat
 
 
 @respx.mock
+async def test_slow_whois_is_bounded_and_does_not_block_message(with_ai, monkeypatch):
+    # The real production failure: a hanging WHOIS lookup (typical of the dead/new
+    # domains scams use) serialized in front of message analysis and squeezed it
+    # into timing out. WHOIS must be hard-bounded, and message analysis must run
+    # concurrently — so a slow WHOIS neither delays the response nor starves the
+    # message check.
+    import time
+
+    _mock_web_risk(False)
+    _mock_vt_clean()
+
+    monkeypatch.setattr(pipeline, "HEURISTIC_WHOIS_TIMEOUT_SECONDS", 0.1)
+
+    def hanging_whois(domain):
+        time.sleep(1.0)  # far longer than the 0.1s bound above
+        return None
+
+    monkeypatch.setattr(heuristics, "lookup_registration_date", hanging_whois)
+
+    async def fake_explain(verdict, score, findings):
+        return "summary"
+
+    async def fake_analyze_message(message, final_url):
+        from app.models import Finding, Severity
+
+        return [Finding(source="ai_message_analysis", severity=Severity.HIGH,
+                        title="Fake urgency", detail="d", tip="t")]
+
+    monkeypatch.setattr(pipeline.ai, "explain", fake_explain)
+    monkeypatch.setattr(pipeline.ai, "analyze_message", fake_analyze_message)
+
+    start = time.perf_counter()
+    result = await pipeline.analyze(
+        "https://example.com", message="pay now", allow_message_analysis=True,
+    )
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 0.9  # bounded by the 0.1s WHOIS timeout, not the 1s hang
+    # Message analysis ran (concurrently) despite the slow WHOIS, and the verdict
+    # reflects its finding rather than a starved "couldn't check".
+    assert "ai_message_analysis" in result.sources_checked
+    assert any(f.title == "Fake urgency" for f in result.findings)
+
+
+@respx.mock
 async def test_no_unchecked_finding_when_no_message(with_ai, monkeypatch):
     # The unchecked-message finding must only appear when a message was actually
     # pasted — a URL-only check with the AI layer down stays clean of it.

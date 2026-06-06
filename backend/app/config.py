@@ -187,6 +187,12 @@ HEURISTIC_MAX_SUBDOMAIN_LABELS = 3
 HEURISTIC_LOOKALIKE_MAX_EDIT_DISTANCE = 1
 # Cert check network timeout.
 CERT_CHECK_TIMEOUT_SECONDS = 5.0
+# WHOIS (domain-age) lookup timeout. python-whois has NO timeout of its own and
+# blocks on the socket; a slow or unresponsive whois server (common for the
+# dead/new domains scammers use) would otherwise stall the whole request for
+# tens of seconds and squeeze the AI calls that run alongside it. Bounded hard
+# at both the socket level and the orchestration level (see pipeline).
+HEURISTIC_WHOIS_TIMEOUT_SECONDS = 4.0
 
 
 # ---------------------------------------------------------------------------

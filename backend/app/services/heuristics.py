@@ -441,9 +441,25 @@ def _levenshtein(a: str, b: str) -> int:
 # ---------------------------------------------------------------------------
 
 def lookup_registration_date(registered_domain: str) -> datetime | None:
-    """Best-effort WHOIS creation date. Returns None on any failure."""
+    """Best-effort WHOIS creation date. Returns None on any failure.
+
+    python-whois enforces no timeout and blocks on the socket, so a slow or
+    unresponsive whois server (typical of the dead/new domains scammers use)
+    can hang for tens of seconds. We pin a process-default socket timeout for
+    the duration of the lookup so the call — and the worker thread it runs in —
+    actually returns. Only sockets that set no explicit timeout are affected
+    (httpx and the cert check both set their own), so this can't shorten the
+    concurrent blocklist/AI calls. The orchestrator additionally caps this with
+    asyncio.wait_for as a hard request-latency bound (see pipeline).
+    """
     if not registered_domain:
         return None
+    import socket
+
+    from app.config import HEURISTIC_WHOIS_TIMEOUT_SECONDS
+
+    prev_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(HEURISTIC_WHOIS_TIMEOUT_SECONDS)
     try:
         import whois  # python-whois
 
@@ -454,6 +470,8 @@ def lookup_registration_date(registered_domain: str) -> datetime | None:
         return created if isinstance(created, datetime) else None
     except Exception:  # noqa: BLE001
         return None
+    finally:
+        socket.setdefaulttimeout(prev_timeout)
 
 
 def get_cert_info(url: NormalizedURL) -> CertInfo:
