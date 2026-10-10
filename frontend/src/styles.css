@@ -198,11 +198,17 @@ body {
 }
 
 .masthead__trust {
-  margin: 1rem 0 0;
-  font-size: 0.83rem;
+  display: inline-block;
+  margin: 1.1rem 0 0;
+  padding: 0.4rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 9%, var(--paper));
+  font-size: 0.85rem;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--brand-deep);
 }
 
 /* ---------- URL input ---------- */
