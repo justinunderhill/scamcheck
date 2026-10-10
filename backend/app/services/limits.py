@@ -15,6 +15,7 @@ real users on an outage), but the AI budget FAILS CLOSED (protect the bill).
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Protocol
@@ -23,6 +24,8 @@ import httpx
 
 from app import config
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class AbuseStore(Protocol):
@@ -68,6 +71,13 @@ class MemoryAbuseStore:
         self._expiry.clear()
 
 
+def _pipeline_result(entry: dict):
+    """Unwrap one Upstash pipeline entry, surfacing its error (e.g. NOPERM) if any."""
+    if "error" in entry:
+        raise RuntimeError(f"Upstash error: {entry['error']}")
+    return entry["result"]
+
+
 class RedisAbuseStore:
     """Upstash Redis via its REST API — a single pipelined round trip per incr."""
 
@@ -83,14 +93,14 @@ class RedisAbuseStore:
             resp = await client.post(f"{self._url}/pipeline", json=body)
             resp.raise_for_status()
             data = resp.json()
-        return int(data[0]["result"])
+        return int(_pipeline_result(data[0]))
 
     async def get(self, key: str) -> int:
         headers = {"Authorization": f"Bearer {self._token}"}
         async with httpx.AsyncClient(timeout=httpx.Timeout(3.0), headers=headers) as client:
             resp = await client.post(f"{self._url}/pipeline", json=[["GET", key]])
             resp.raise_for_status()
-            result = resp.json()[0]["result"]
+            result = _pipeline_result(resp.json()[0])
         return int(result) if result is not None else 0
 
     def reset(self) -> None:  # pragma: no cover - no-op in production
@@ -118,7 +128,8 @@ class AbuseGuard:
         bucket = int(time.time()) // window
         try:
             count = await self._store.incr(f"rl:{ip}:{bucket}", window)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Abuse store incr (rate limit) failed: %s: %.200s", type(exc).__name__, exc)
             return True
         return count <= config.RATE_LIMIT_REQUESTS
 
@@ -132,7 +143,8 @@ class AbuseGuard:
         """
         try:
             count = await self._store.get(f"daily:{ip}:{_today()}")
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Abuse store get (daily cap) failed: %s: %.200s", type(exc).__name__, exc)
             return True
         return count < config.FREE_TIER_CHECKS_PER_DAY
 
@@ -144,14 +156,16 @@ class AbuseGuard:
         """
         try:
             await self._store.incr(f"daily:{ip}:{_today()}", 86_400)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Abuse store incr (daily cap) failed: %s: %.200s", type(exc).__name__, exc)
             pass
 
     async def try_consume_ai_budget(self) -> bool:
         """Global daily AI-call budget. Fails CLOSED on store error (protect the bill)."""
         try:
             count = await self._store.incr(f"ai:{_today()}", 86_400)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Abuse store incr (AI budget; AI disabled for this request) failed: %s: %.200s", type(exc).__name__, exc)
             return False
         return count <= config.AI_DAILY_CALL_CAP
 
