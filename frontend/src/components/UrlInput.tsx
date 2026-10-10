@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Search } from "./icons";
+import { ArrowRight, Close, Search } from "./icons";
 
 interface Props {
   onCheck: (url: string, message?: string) => void;
@@ -28,7 +28,7 @@ export function UrlInput({ onCheck, loading }: Props) {
   }
 
   return (
-    <div className="url-input">
+    <div className="url-input panel">
       <form onSubmit={handleSubmit}>
         <label htmlFor="url" className="url-input__label">
           Paste a link to check
@@ -48,6 +48,19 @@ export function UrlInput({ onCheck, loading }: Props) {
             onChange={(e) => setValue(e.target.value)}
             disabled={loading}
           />
+          {value && !loading && (
+            <button
+              type="button"
+              className="url-input__clear"
+              aria-label="Clear link"
+              onClick={() => {
+                setValue("");
+                document.getElementById("url")?.focus();
+              }}
+            >
+              <Close width={18} height={18} aria-hidden="true" />
+            </button>
+          )}
           <button type="submit" className="url-input__button" disabled={loading || !value.trim()}>
             <span>{loading ? "Checking…" : "Check"}</span>
             {!loading && <ArrowRight width={18} height={18} aria-hidden="true" />}
