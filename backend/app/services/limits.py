@@ -160,6 +160,16 @@ class AbuseGuard:
             logger.warning("Abuse store incr (daily cap) failed: %s: %.200s", type(exc).__name__, exc)
             pass
 
+    async def allow_screenshot_read(self, ip: str) -> bool:
+        """Per-IP daily cap on screenshot reads. Counts the attempt. Fails OPEN on
+        store error: each read also draws on the AI budget, which fails closed."""
+        try:
+            count = await self._store.incr(f"shot:{ip}:{_today()}", 86_400)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Abuse store incr (screenshot cap) failed: %s: %.200s", type(exc).__name__, exc)
+            return True
+        return count <= config.SCREENSHOT_READS_PER_DAY
+
     async def try_consume_ai_budget(self) -> bool:
         """Global daily AI-call budget. Fails CLOSED on store error (protect the bill)."""
         try:

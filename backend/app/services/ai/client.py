@@ -16,8 +16,18 @@ class AIUnavailable(Exception):
     """The AI layer couldn't produce a result (no key, timeout, error, rate limit)."""
 
 
-async def complete(*, model: str, system: str, user: str, max_tokens: int) -> str:
+async def complete(
+    *,
+    model: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    images: list[tuple[str, str]] | None = None,
+) -> str:
     """Send one message to Claude and return the text response.
+
+    `images` is an optional list of (media_type, base64_data) pairs sent ahead of
+    the text, e.g. a user's screenshot. Like `user`, they are untrusted data.
 
     Raises AIUnavailable on any failure so callers can fall back deterministically.
     The system prompt holds the fixed guardrails; `user` is untrusted data.
@@ -38,7 +48,7 @@ async def complete(*, model: str, system: str, user: str, max_tokens: int) -> st
             model=model,
             max_tokens=max_tokens,
             system=system,
-            messages=[{"role": "user", "content": user}],
+            messages=[{"role": "user", "content": _content(user, images)}],
         )
     except Exception as exc:  # noqa: BLE001 - SDK raises many types; all -> fallback
         # Log the failure reason so a silent fallback is diagnosable. SDK error
@@ -52,3 +62,14 @@ async def complete(*, model: str, system: str, user: str, max_tokens: int) -> st
     if not text:
         raise AIUnavailable("empty response")
     return text
+
+
+def _content(user: str, images: list[tuple[str, str]] | None) -> str | list[dict]:
+    if not images:
+        return user
+    blocks: list[dict] = [
+        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
+        for media_type, data in images
+    ]
+    blocks.append({"type": "text", "text": user})
+    return blocks

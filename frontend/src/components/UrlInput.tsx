@@ -1,9 +1,13 @@
-import { useState, type FormEvent } from "react";
-import { ArrowRight, Close, Search } from "./icons";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { ArrowRight, Close, ImageUp, Search } from "./icons";
 
 interface Props {
-  onCheck: (url: string, message?: string) => void;
+  onCheck: (url?: string, message?: string) => void;
+  onScreenshot: (file: File) => void;
   loading: boolean;
+  // Pre-filled after a screenshot is read, so the user sees what we checked.
+  initialUrl?: string;
+  initialMessage?: string;
 }
 
 const EXAMPLES = [
@@ -12,14 +16,24 @@ const EXAMPLES = [
   { label: "A lookalike", url: "https://royalmail-redelivery-fee.online/pay" },
 ];
 
-export function UrlInput({ onCheck, loading }: Props) {
-  const [value, setValue] = useState("");
-  const [message, setMessage] = useState("");
+function imageFrom(items: DataTransferItemList | null | undefined): File | null {
+  for (const item of Array.from(items ?? [])) {
+    if (item.kind === "file" && item.type.startsWith("image/")) return item.getAsFile();
+  }
+  return null;
+}
+
+export function UrlInput({ onCheck, onScreenshot, loading, initialUrl = "", initialMessage = "" }: Props) {
+  const [value, setValue] = useState(initialUrl);
+  const [message, setMessage] = useState(initialMessage);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const canSubmit = !loading && Boolean(value.trim() || message.trim());
 
   function submit(url: string, msg?: string) {
     const trimmed = url.trim();
     const trimmedMsg = (msg ?? "").trim();
-    if (trimmed && !loading) onCheck(trimmed, trimmedMsg || undefined);
+    if ((trimmed || trimmedMsg) && !loading) onCheck(trimmed || undefined, trimmedMsg || undefined);
   }
 
   function handleSubmit(e: FormEvent) {
@@ -27,9 +41,42 @@ export function UrlInput({ onCheck, loading }: Props) {
     submit(value, message);
   }
 
+  function takeFile(file: File | null | undefined) {
+    if (file && !loading) onScreenshot(file);
+  }
+
+  // Pasting a copied screenshot anywhere in the form reads it. Text pastes are
+  // left alone.
+  function handlePaste(e: ClipboardEvent) {
+    const file = imageFrom(e.clipboardData?.items);
+    if (file) {
+      e.preventDefault();
+      takeFile(file);
+    }
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    takeFile(e.dataTransfer.files?.[0]);
+  }
+
   return (
-    <div className="url-input panel">
-      <form onSubmit={handleSubmit}>
+    <div
+      className="url-input panel"
+      data-dragging={dragging || undefined}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer.types).includes("Files")) {
+          e.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={handleDrop}
+    >
+      <form onSubmit={handleSubmit} onPaste={handlePaste}>
         <label htmlFor="url" className="url-input__label">
           Paste a link to check
         </label>
@@ -61,15 +108,15 @@ export function UrlInput({ onCheck, loading }: Props) {
               <Close width={18} height={18} aria-hidden="true" />
             </button>
           )}
-          <button type="submit" className="url-input__button" disabled={loading || !value.trim()}>
+          <button type="submit" className="url-input__button" disabled={!canSubmit}>
             <span>{loading ? "Checking…" : "Check"}</span>
             {!loading && <ArrowRight width={18} height={18} aria-hidden="true" />}
           </button>
         </div>
 
         <label htmlFor="message" className="url-input__message-label">
-          Got the link in a text, email, or DM? Paste the whole message too —
-          we’ll check the wording for scam tactics. (Optional)
+          Got it in a text, email, or DM? Paste the whole message too, and we’ll
+          check the wording for scam tactics. No link? The message on its own is fine.
         </label>
         <textarea
           id="message"
@@ -81,6 +128,31 @@ export function UrlInput({ onCheck, loading }: Props) {
           onChange={(e) => setMessage(e.target.value)}
           disabled={loading}
         />
+
+        <div className="url-input__upload">
+          <button
+            type="button"
+            className="btn btn--ghost url-input__upload-button"
+            onClick={() => fileRef.current?.click()}
+            disabled={loading}
+          >
+            <ImageUp width={19} height={19} aria-hidden="true" />
+            Or upload a screenshot
+          </button>
+          <span className="url-input__upload-note">
+            We read the text and check it. Your screenshot isn’t saved.
+          </span>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              takeFile(e.target.files?.[0]);
+              e.target.value = ""; // allow choosing the same file again
+            }}
+          />
+        </div>
       </form>
 
       <div className="url-input__examples">

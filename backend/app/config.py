@@ -128,6 +128,20 @@ def get_settings() -> Settings:
 # Free tier: a few frictionless, account-free checks per IP per day.
 FREE_TIER_CHECKS_PER_DAY = 5
 
+# Screenshot reads per IP per day (POST /api/extract). Each read is one AI vision
+# call, so it's capped separately from checks; a read normally leads straight
+# into a check, which still counts toward FREE_TIER_CHECKS_PER_DAY.
+SCREENSHOT_READS_PER_DAY = 10
+# Largest decoded screenshot we accept. The browser downscales before upload
+# (Vercel caps request bodies at 4.5 MB, and base64 adds ~33%).
+SCREENSHOT_MAX_BYTES = 3_000_000
+SCREENSHOT_MEDIA_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+
+# A message-only check (no link) has no deterministic source behind it, and the
+# AI may never issue a standalone all-clear (CLAUDE.md). Its score is floored at
+# the suspicious threshold so the verdict is never "safe".
+MESSAGE_ONLY_MIN_SCORE = 30
+
 # Per-IP rate limit on POST /api/check (short-window throttle, separate from the
 # daily free-tier cap above). Protects against bursts/scraping.
 RATE_LIMIT_REQUESTS = 10
@@ -239,3 +253,11 @@ AI_EXPLAIN_CACHE_SIZE = 512
 # (latency): a real scam trips the same few patterns, so the 4 strongest say
 # everything the verdict needs without making the model write a long array.
 AI_MESSAGE_MAX_FINDINGS = 4
+# Reading a screenshot (link + message text) needs an EXACT transcription: a
+# model that "corrects" what it sees can turn a scam domain into a plausible one,
+# hiding the very trick we check for. Measured 2026-10-10 on a fake bank SMS with
+# the link fnb-secure-verlfy.co/za/login: Sonnet 4.6 read it as ".co.za/login"
+# (a different domain) 3/3 times; Sonnet 5.5 and Opus 5.5 were exact 3/3, and
+# Sonnet 5.5 was also faster (~2s vs ~3.5s). See docs/DECISIONS.md.
+AI_EXTRACT_MODEL = "claude-sonnet-5-5"
+AI_EXTRACT_MAX_TOKENS = 1500

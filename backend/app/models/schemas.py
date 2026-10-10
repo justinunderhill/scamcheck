@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Verdict(str, Enum):
@@ -49,19 +49,32 @@ class Finding(BaseModel):
 
 
 class CheckRequest(BaseModel):
-    url: str = Field(..., description="The URL the user wants checked.")
+    url: str | None = Field(
+        default=None,
+        description="The URL the user wants checked. Optional when a message is given.",
+    )
     message: str | None = Field(
         default=None,
         description=(
             "Optional full message the link arrived in. Analyzed for "
-            "social-engineering patterns (available on all tiers)."
+            "social-engineering patterns (available on all tiers). On its own, "
+            "with no url, it makes a message-only check."
         ),
     )
 
+    @model_validator(mode="after")
+    def _require_url_or_message(self) -> "CheckRequest":
+        self.url = (self.url or "").strip() or None
+        self.message = (self.message or "").strip() or None
+        if not (self.url or self.message):
+            raise ValueError("Paste a link or a message to check.")
+        return self
+
 
 class CheckResponse(BaseModel):
-    input_url: str
-    final_url: str
+    # Both are null for a message-only check (no link was given).
+    input_url: str | None
+    final_url: str | None
     verdict: Verdict
     score: int = Field(..., ge=0, le=100, description="0-100, higher = riskier.")
     summary: str = Field(
@@ -71,3 +84,17 @@ class CheckResponse(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     sources_checked: list[str] = Field(default_factory=list)
     sources_unavailable: list[str] = Field(default_factory=list)
+
+
+class ScreenshotRequest(BaseModel):
+    """POST /api/extract: a screenshot to read (never stored or logged)."""
+
+    image: str = Field(..., description="Base64-encoded image bytes (no data: prefix).")
+    media_type: str = Field(..., examples=["image/jpeg"])
+
+
+class ScreenshotResponse(BaseModel):
+    """What was read from the screenshot. The client then runs a normal check."""
+
+    url: str | None = None
+    message: str | None = None

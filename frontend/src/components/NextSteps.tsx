@@ -1,8 +1,10 @@
 import type { Verdict } from "../lib/types";
 
+type Steps = Record<Verdict, { title: string; items: string[] }>;
+
 // Plain-language actions per verdict. "safe" stays honest: nothing was found,
 // which is not a guarantee — so it still nudges the user to stay careful.
-const STEPS: Record<Verdict, { title: string; items: string[] }> = {
+const STEPS: Steps = {
   dangerous: {
     title: "What to do now",
     items: [
@@ -28,8 +30,29 @@ const STEPS: Record<Verdict, { title: string; items: string[] }> = {
   },
 };
 
-export function NextSteps({ verdict }: { verdict: Verdict }) {
-  const { title, items } = STEPS[verdict];
+// A message with no link: the risk is replying, paying or sharing, not clicking.
+const MESSAGE_STEPS: Steps = {
+  dangerous: {
+    title: "What to do now",
+    items: [
+      "Don’t reply, pay, or share any codes or personal details.",
+      "Already paid or shared something? Call your bank straight away, using the number on your card.",
+      "Block the sender, and warn anyone the message may have been sent to.",
+    ],
+  },
+  suspicious: {
+    title: "Before you reply",
+    items: [
+      "Don’t send money, codes or personal details until you’ve checked it’s real.",
+      "Contact the person or company on a number you already know — not one in the message.",
+      "If it pressures you to act fast, slow down. Real people and companies give you time.",
+    ],
+  },
+  safe: STEPS.safe,
+};
+
+export function NextSteps({ verdict, messageOnly = false }: { verdict: Verdict; messageOnly?: boolean }) {
+  const { title, items } = (messageOnly ? MESSAGE_STEPS : STEPS)[verdict];
   return (
     <section className="next-steps">
       <h2 className="next-steps__title">{title}</h2>

@@ -85,6 +85,10 @@ Response:
   "sources_unavailable": []
 }
 ```
+**Message-only checks (2026-10-10):** `url` is optional when `message` is given (at least one is required). A message-only response has `input_url` and `final_url` set to `null`, and its score is floored at the suspicious threshold, so it is never `safe`: with no link there is no deterministic source, and AI may not issue a standalone all-clear.
+
+`POST /api/extract` reads a screenshot for the client. Request: `{ "image": "<base64>", "media_type": "image/jpeg" }` (JPEG / PNG / WebP). Response: `{ "url": "..." | null, "message": "..." | null }`. It never returns a verdict: the client puts what was read into a normal `POST /api/check`. Screenshots are never stored or logged. Reads are capped per IP per day and draw on the daily AI budget.
+
 `verdict` is one of `safe` | `suspicious` | `dangerous`. `score` is 0–100 (higher = riskier). `summary` is AI-generated; if the AI layer is unavailable, fall back to a deterministic template summary and note `ai` in `sources_unavailable`.
 
 ## Scoring guidance

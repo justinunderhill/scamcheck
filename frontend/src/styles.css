@@ -329,6 +329,22 @@ body {
   box-shadow: 0 0 0 4px rgba(15, 110, 98, 0.12), var(--shadow-sm);
 }
 
+.url-input__upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.85rem;
+  margin: 0.85rem 0.25rem 0;
+}
+.url-input__upload-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.url-input__upload-note { font-size: 0.88rem; color: var(--ink-2); }
+/* A screenshot dragged over the form. */
+.url-input[data-dragging] {
+  border-color: var(--brand);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--brand) 5%, var(--card));
+}
+
 .url-input__examples {
   display: flex;
   flex-wrap: wrap;

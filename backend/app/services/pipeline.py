@@ -25,6 +25,7 @@ import httpx
 from app.config import (
     CERT_CHECK_TIMEOUT_SECONDS,
     HEURISTIC_WHOIS_TIMEOUT_SECONDS,
+    MESSAGE_ONLY_MIN_SCORE,
     URL_FETCH_USER_AGENT,
     get_settings,
 )
@@ -37,7 +38,12 @@ from app.services import virustotal as vt
 from app.services import web_risk
 from app.services.ai.client import AIUnavailable
 from app.services.base import SourceUnavailable
-from app.services.scoring import score_findings, template_summary, verdict_for_score
+from app.services.scoring import (
+    WORDING_ONLY_CODE,
+    score_findings,
+    template_summary,
+    verdict_for_score,
+)
 
 # External (HTTP) sources, in the order they appear in sources_checked.
 # Web Risk is Google's current blocklist API; it replaces the legacy Safe
@@ -46,7 +52,7 @@ _EXTERNAL_SOURCES = (web_risk, vt)
 
 
 async def analyze(
-    raw_url: str,
+    raw_url: str | None,
     message: str | None = None,
     *,
     allow_message_analysis: bool = False,
@@ -56,8 +62,16 @@ async def analyze(
 
     `allow_message_analysis` is set by tier gating (paid-only). `allow_ai_summary`
     is set False by the daily AI-cap fallback. Both default to the deterministic-
-    safe behaviour.
+    safe behaviour. With no `raw_url`, only the message is checked (see
+    `_analyze_message_only`).
     """
+    if not raw_url:
+        return await _analyze_message_only(
+            message,
+            allow_message_analysis=allow_message_analysis,
+            allow_ai_summary=allow_ai_summary,
+        )
+
     settings = get_settings()
 
     normalized = normalize_url(raw_url)
@@ -160,6 +174,93 @@ async def analyze(
     )
 
 
+async def _analyze_message_only(
+    message: str | None, *, allow_message_analysis: bool, allow_ai_summary: bool
+) -> CheckResponse:
+    """Check a message that came with no link (e.g. "Hi Mum, new number").
+
+    Only the AI can read it, and the AI may never issue a standalone all-clear
+    (CLAUDE.md), so the score is floored at MESSAGE_ONLY_MIN_SCORE: the verdict
+    is at least "suspicious" and the user is told only the wording was checked.
+    """
+    settings = get_settings()
+    ai_active = settings.ai_enabled and allow_ai_summary
+    wanted = bool(message) and allow_message_analysis
+    state, message_findings = await _run_message_analysis(None, message, wanted, ai_active)
+
+    findings: list[Finding] = []
+    sources_checked: list[str] = []
+    sources_unavailable: list[str] = []
+    if state == "ran":
+        findings.extend(message_findings)
+        sources_checked.append(SOURCE_AI_MESSAGE)
+    else:
+        sources_unavailable.append(SOURCE_AI_MESSAGE)
+        findings.append(_message_only_unchecked_finding())
+
+    score = score_findings(findings)
+    if score < MESSAGE_ONLY_MIN_SCORE:
+        findings.append(_wording_only_finding())
+        score = MESSAGE_ONLY_MIN_SCORE
+    verdict = verdict_for_score(score)
+
+    summary: str | None = None
+    if ai_active and state == "ran":
+        try:
+            summary = await ai.explain(verdict, score, findings, message_only=True)
+        except AIUnavailable:
+            summary = None
+    if summary is None:
+        summary = template_summary(verdict, findings, message_only=True)
+        sources_unavailable.append(SOURCE_AI)
+
+    return CheckResponse(
+        input_url=None,
+        final_url=None,
+        verdict=verdict,
+        score=score,
+        summary=summary,
+        findings=findings,
+        sources_checked=sources_checked,
+        sources_unavailable=sources_unavailable,
+    )
+
+
+def _wording_only_finding() -> Finding:
+    """Scope note for a message-only check where nothing stood out."""
+    return Finding(
+        source=SOURCE_AI_MESSAGE,
+        severity=Severity.LOW,
+        title="We could only check the wording",
+        detail=(
+            "There was no link to check, so we read the message itself. Nothing obvious "
+            "stood out, but that doesn't prove it's genuine."
+        ),
+        tip=(
+            "If a message asks for money or personal details, confirm it first by calling "
+            "the person or company on a number you already know."
+        ),
+        code=WORDING_ONLY_CODE,
+    )
+
+
+def _message_only_unchecked_finding() -> Finding:
+    """A message-only check where the AI layer couldn't run: nothing was checked."""
+    return Finding(
+        source=SOURCE_AI_MESSAGE,
+        severity=Severity.MEDIUM,
+        title="We couldn't check your message",
+        detail=(
+            "Our message analysis was temporarily unavailable and there was no link to "
+            "check, so we couldn't check anything this time. Treat it as unchecked."
+        ),
+        tip=(
+            "Be wary of messages that pressure you to act fast or ask for money or "
+            "passwords. Try checking again in a little while."
+        ),
+    )
+
+
 def _message_unchecked_finding() -> Finding:
     """Surface that a pasted message went un-analyzed (AI layer unavailable).
 
@@ -233,7 +334,7 @@ async def _cert_info(url):
 
 
 async def _run_message_analysis(
-    final_url: str, message: str | None, wanted: bool, ai_active: bool
+    final_url: str | None, message: str | None, wanted: bool, ai_active: bool
 ) -> tuple[str, list[Finding]]:
     """Run message analysis concurrently with the other sources.
 

@@ -91,3 +91,12 @@ export const ArrowRight = (p: IconProps) => (
     <path d="m13 6 6 6-6 6" />
   </svg>
 );
+
+export const ImageUp = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7" />
+    <path d="m4 17 4.5-4.5a1.5 1.5 0 0 1 2.1 0L15 17" />
+    <path d="M18 9V3" />
+    <path d="m15.5 5.5 2.5-2.5 2.5 2.5" />
+  </svg>
+);

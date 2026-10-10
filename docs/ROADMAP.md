@@ -13,10 +13,10 @@
 - Later: optional "sponsor a senior" / donation path so businesses and individuals can fund free access for vulnerable users
 - Keep the paid price genuinely small — accessibility over margin
 
-## Under consideration (2026-10-07) — "check anything you're unsure about"
+## "Check anything you're unsure about" (proposed 2026-10-07; 1 + 2 built 2026-10-10)
 Prompted by Capitec's Scam Checker launch (free, no login, accepts link / text / screenshot / image, on the banking app's sign-in screen). It validates our direction; the gap is input modes. Proposed order:
-1. **Text-only checks** — make `url` optional (require `url` or `message`). Many scams have no link ("Hi Mum, new number…", fake SARS refunds, investment pitches). With no deterministic anchor the verdict must stay honest: "nothing obvious found, here's what to watch for" — never "safe".
-2. **Screenshot upload** — Claude vision extracts message text + URLs, which then go through the existing pipeline (blocklists/heuristics still own the verdict). Watch: image cost vs. the daily AI cap; screenshots contain names/numbers, so never store or log them.
+1. ✅ **Text-only checks** — make `url` optional (require `url` or `message`). Many scams have no link ("Hi Mum, new number…", fake SARS refunds, investment pitches). With no deterministic anchor the verdict must stay honest: "nothing obvious found, here's what to watch for" — never "safe".
+2. ✅ **Screenshot upload** — Claude vision extracts message text + URLs, which then go through the existing pipeline (blocklists/heuristics still own the verdict). Watch: image cost vs. the daily AI cap; screenshots contain names/numbers, so never store or log them.
 3. **WhatsApp bot** (pull forward from v3) — thin wrapper once 1 + 2 exist; our equivalent of their zero-friction placement.
 
 Positioning: bank-agnostic and transparent (shows *why*), vs. a bank's own-clients black box.

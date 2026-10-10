@@ -36,8 +36,17 @@ def verdict_for_score(score: int) -> Verdict:
     return Verdict.SAFE
 
 
+# Finding code for the message-only scope note ("we could only check the
+# wording"). Shared with the pipeline so the template can recognise it.
+WORDING_ONLY_CODE = "message_only_scope"
+
+
 def template_summary(
-    verdict: Verdict, findings: list[Finding], *, email_domain: str | None = None
+    verdict: Verdict,
+    findings: list[Finding],
+    *,
+    email_domain: str | None = None,
+    message_only: bool = False,
 ) -> str:
     """Deterministic, honest summary used when the AI layer is unavailable.
 
@@ -54,6 +63,18 @@ def template_summary(
             "real accounts. "
         )
         subject = "domain"
+    elif message_only:
+        prefix = ""
+        subject = "message"
+        # Only the scope note: the wording raised nothing, but with no link
+        # there's nothing deterministic behind that, so don't reassure.
+        if all(f.code == WORDING_ONLY_CODE for f in findings):
+            return (
+                "We didn't spot common scam tricks in this message, but there was no "
+                "link to check, so we can't confirm it's genuine. Before acting on any "
+                "request for money or personal details, confirm it through a number or "
+                "website you already know."
+            )
     else:
         prefix = ""
         subject = "link"

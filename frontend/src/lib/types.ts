@@ -13,8 +13,9 @@ export interface Finding {
 }
 
 export interface CheckResponse {
-  input_url: string;
-  final_url: string;
+  // Both null for a message-only check (no link was given).
+  input_url: string | null;
+  final_url: string | null;
   verdict: Verdict;
   score: number;
   summary: string;
@@ -23,7 +24,19 @@ export interface CheckResponse {
   sources_unavailable: string[];
 }
 
+// At least one of url / message is required.
 export interface CheckRequest {
-  url: string;
+  url?: string;
   message?: string;
+}
+
+// POST /api/extract: a screenshot to read. Never stored or logged.
+export interface ScreenshotRequest {
+  image: string; // base64, no data: prefix
+  media_type: string;
+}
+
+export interface ScreenshotResponse {
+  url: string | null;
+  message: string | null;
 }

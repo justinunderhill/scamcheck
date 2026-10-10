@@ -6,17 +6,21 @@ import { SourcesNote } from "./components/SourcesNote";
 import { NextSteps } from "./components/NextSteps";
 import { CheckingState } from "./components/CheckingState";
 import { Refresh, ShieldCheck } from "./components/icons";
-import { ApiError, checkUrl } from "./lib/api";
+import { ApiError, checkUrl, readScreenshot } from "./lib/api";
+import { prepareScreenshot } from "./lib/screenshot";
 import type { CheckResponse } from "./lib/types";
 
 export function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CheckResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Whether the in-flight check includes a pasted message (adds the slow AI step).
-  const [checkingMessage, setCheckingMessage] = useState(false);
-  // Bumping the key remounts UrlInput, clearing the link and message fields.
+  // What the in-flight check covers, so the progress steps match it.
+  const [checking, setChecking] = useState({ hasLink: true, hasMessage: false });
+  // Set while a check that started from a screenshot is running.
+  const [screenshot, setScreenshot] = useState<"reading" | "read" | undefined>();
+  // Bumping the key remounts UrlInput; `prefill` seeds it (empty clears it).
   const [formKey, setFormKey] = useState(0);
+  const [prefill, setPrefill] = useState({ url: "", message: "" });
   const resultRef = useRef<HTMLElement>(null);
 
   // Bring a fresh result into view (the form above it can be tall on mobile).
@@ -24,23 +28,58 @@ export function App() {
     if (result) resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [result]);
 
-  async function handleCheck(url: string, message?: string) {
+  function begin() {
     setLoading(true);
-    setCheckingMessage(Boolean(message?.trim()));
     setError(null);
     setResult(null);
+  }
+
+  function fail(e: unknown) {
+    setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
+  }
+
+  async function runCheck(url?: string, message?: string) {
+    setChecking({ hasLink: Boolean(url), hasMessage: Boolean(message) });
+    setResult(await checkUrl({ url, message }));
+  }
+
+  async function handleCheck(url?: string, message?: string) {
+    begin();
+    setScreenshot(undefined);
     try {
-      setResult(await checkUrl({ url, message }));
+      await runCheck(url, message);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
+      fail(e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Read the screenshot, show what was read in the boxes, then check it straight
+  // away. One continuous loading state covers both steps.
+  async function handleScreenshot(file: File) {
+    begin();
+    setScreenshot("reading");
+    try {
+      const read = await readScreenshot(await prepareScreenshot(file));
+      const url = read.url ?? undefined;
+      const message = read.message ?? undefined;
+      setPrefill({ url: url ?? "", message: message ?? "" });
+      setFormKey((k) => k + 1);
+      setScreenshot("read");
+      await runCheck(url, message);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setLoading(false);
+      setScreenshot(undefined);
     }
   }
 
   function startOver() {
     setResult(null);
     setError(null);
+    setPrefill({ url: "", message: "" });
     setFormKey((k) => k + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
     // Wait for the remount before focusing the fresh input.
@@ -70,13 +109,20 @@ export function App() {
         <header className="masthead">
           <h1 className="masthead__title">Is this link safe?</h1>
           <p className="masthead__lede">
-            Paste a suspicious link and get a clear, plain-language answer —
-            checked against multiple security sources in seconds.
+            Paste a suspicious link or message, or upload a screenshot, and get a
+            clear, plain-language answer, checked against multiple security sources.
           </p>
           <p className="masthead__trust">Free · No account needed · We never open the link for you</p>
         </header>
 
-        <UrlInput key={formKey} onCheck={handleCheck} loading={loading} />
+        <UrlInput
+          key={formKey}
+          onCheck={handleCheck}
+          onScreenshot={handleScreenshot}
+          loading={loading}
+          initialUrl={prefill.url}
+          initialMessage={prefill.message}
+        />
 
         {error && (
           <div className="app__error" role="alert">
@@ -88,19 +134,19 @@ export function App() {
           </div>
         )}
 
-        {loading && <CheckingState hasMessage={checkingMessage} />}
+        {loading && <CheckingState {...checking} screenshot={screenshot} />}
 
         {!loading && result && (
-          <section className="result" ref={resultRef} key={result.input_url + result.score}>
+          <section className="result" ref={resultRef} key={(result.input_url ?? "message") + result.score}>
             <VerdictCard result={result} />
-            <NextSteps verdict={result.verdict} />
+            <NextSteps verdict={result.verdict} messageOnly={!result.final_url} />
             <h2 className="result__heading">Why we say this</h2>
             <FindingsList findings={result.findings} />
             <SourcesNote result={result} />
             <div className="result__again">
               <button type="button" className="btn btn--primary" onClick={startOver}>
                 <Refresh width={18} height={18} aria-hidden="true" />
-                Check another link
+                Check something else
               </button>
             </div>
           </section>

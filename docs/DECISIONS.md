@@ -232,6 +232,34 @@ API grows to about 2 × 25s before falling back. Capping retries keeps it from
 reaching ~75s at the SDK default. The checking screen keeps showing progress
 during long waits so the user knows it's still working.
 
+### 2026-10-10 — Screenshot upload and message-only checks
+**Decision:** Users can upload (or paste, or drop) a screenshot. A new
+`POST /api/extract` has Claude transcribe the link and message text. The client
+fills the form with what was read and immediately runs a normal
+`POST /api/check`. Separately, `url` is now optional when a `message` is given.
+**Why a separate read step:** Reading never produces a verdict, so the
+deterministic sources still own every verdict and `/api/check` stays the one
+place verdicts come from. The user also sees exactly what was read. The browser
+downscales to ~1.15 MP JPEG before upload, which is about the resolution Claude
+reads at anyway. That keeps requests well under Vercel's 4.5 MB body limit and
+strips EXIF data such as location. Screenshots are never stored or logged.
+**Model for reading: `claude-sonnet-5-5`.** Transcription has to be exact, since
+the trick is often in one character. On a fake bank SMS whose link was
+`fnb-secure-verlfy.co/za/login`, `claude-sonnet-4-6` read it as `.co.za/login`
+(a different, legitimate-looking domain) 3/3 times. `claude-sonnet-5-5` and
+`claude-opus-5-5` were exact 3/3, and Sonnet 5.5 was faster (~2s vs ~3.5s). The
+prompt also tells the model to never "fix" spelling or web addresses.
+**Message-only verdicts:** With no link there is no blocklist or heuristic, and
+AI may not issue a standalone all-clear. The score is floored at the suspicious
+threshold (`MESSAGE_ONLY_MIN_SCORE`). When nothing stands out, a low-severity
+"We could only check the wording" finding explains why. The UI uses gentler
+message-specific copy ("Be careful with this message", "Before you reply").
+**Consequences:** `input_url`/`final_url` are `null` on message-only responses
+(a contract change, recorded in CLAUDE.md). Each screenshot costs one extra AI
+call, capped per IP per day (`SCREENSHOT_READS_PER_DAY`) and drawing on the global
+daily AI budget, which fails closed. A read normally leads into a check, and that
+check still counts toward the free daily limit.
+
 ## Template
 
 ### [DATE] — Title

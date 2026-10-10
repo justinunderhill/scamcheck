@@ -1,4 +1,4 @@
-import type { CheckRequest, CheckResponse } from "./types";
+import type { CheckRequest, CheckResponse, ScreenshotRequest, ScreenshotResponse } from "./types";
 
 // Empty base => same-origin (uses the Vite dev proxy). In prod, set
 // VITE_API_BASE_URL to the deployed backend. The frontend NEVER calls
@@ -7,10 +7,22 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export class ApiError extends Error {}
 
-export async function checkUrl(payload: CheckRequest): Promise<CheckResponse> {
+export function checkUrl(payload: CheckRequest): Promise<CheckResponse> {
+  return post<CheckResponse>("/api/check", payload, "Something went wrong checking that. Please try again.");
+}
+
+export function readScreenshot(payload: ScreenshotRequest): Promise<ScreenshotResponse> {
+  return post<ScreenshotResponse>(
+    "/api/extract",
+    payload,
+    "Something went wrong reading that screenshot. Please try again, or paste the text instead.",
+  );
+}
+
+async function post<T>(path: string, payload: unknown, fallback: string): Promise<T> {
   let resp: Response;
   try {
-    resp = await fetch(`${API_BASE}/api/check`, {
+    resp = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -22,14 +34,13 @@ export async function checkUrl(payload: CheckRequest): Promise<CheckResponse> {
   }
 
   if (!resp.ok) {
-    // The backend sends a clear, friendly `detail` for rate limits (429) and
-    // bad input (400). Prefer it; fall back to a generic message.
+    // The backend sends a clear, friendly `detail` for rate limits (429), bad
+    // input (400/422) and unavailability (503). Prefer it; else a generic message.
     const detail = await readDetail(resp);
-    if (detail) throw new ApiError(detail);
-    throw new ApiError("Something went wrong checking that link. Please try again.");
+    throw new ApiError(detail ?? fallback);
   }
 
-  return (await resp.json()) as CheckResponse;
+  return (await resp.json()) as T;
 }
 
 async function readDetail(resp: Response): Promise<string | null> {
