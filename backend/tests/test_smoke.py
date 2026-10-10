@@ -76,3 +76,20 @@ def test_check_rejects_malformed_url():
     resp = client.post("/api/check", json={"url": "javascript:alert(1)"})
     assert resp.status_code == 400
     assert resp.json()["detail"]
+
+
+def test_cron_keepalive_open_without_secret(monkeypatch):
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    get_settings.cache_clear()
+    resp = client.get("/api/cron/keepalive")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_cron_keepalive_requires_secret_when_set(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "s3cret")
+    get_settings.cache_clear()
+    assert client.get("/api/cron/keepalive").status_code == 401
+    assert client.get("/api/cron/keepalive", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    ok = client.get("/api/cron/keepalive", headers={"Authorization": "Bearer s3cret"})
+    assert ok.status_code == 200

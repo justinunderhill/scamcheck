@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # working cap). Set true for single-process local dev to use AI without Redis.
     ai_allow_without_durable_budget: bool = False
 
+    # Optional. When set, GET /api/cron/keepalive requires the
+    # `Authorization: Bearer <CRON_SECRET>` header Vercel Cron sends automatically.
+    cron_secret: str = ""
+
     # --- Internal analytics ---
     # Secret token guarding GET /api/admin/analytics. When empty the admin route
     # is disabled entirely (responds 404), so analytics are never exposed by

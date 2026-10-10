@@ -169,6 +169,19 @@ class AbuseGuard:
             return False
         return count <= config.AI_DAILY_CALL_CAP
 
+    async def keepalive(self) -> bool:
+        """Write to the store so an idle free-tier Upstash database isn't auto-deleted.
+
+        Upstash deletes free databases after 14 days without activity; a low-traffic
+        period would otherwise silently disable AI (the budget fails closed).
+        """
+        try:
+            await self._store.incr("keepalive", 30 * 86_400)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Abuse store incr (keepalive) failed: %s: %.200s", type(exc).__name__, exc)
+            return False
+        return True
+
     def reset(self) -> None:
         self._store.reset()
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -55,3 +55,16 @@ async def health() -> dict[str, object]:
         "ai_active": settings.ai_enabled
         and (guard.is_durable or settings.ai_allow_without_durable_budget),
     }
+
+
+@app.get("/api/cron/keepalive")
+async def cron_keepalive(authorization: str | None = Header(default=None)) -> dict[str, bool]:
+    """Daily Vercel Cron target (vercel.json): keeps the free Upstash DB active.
+
+    Costs one Redis command, less than a single /api/check, so it's safe to leave
+    open; when CRON_SECRET is set, only Vercel Cron's bearer header is accepted.
+    """
+    secret = get_settings().cron_secret
+    if secret and authorization != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return {"durable": guard.is_durable, "ok": await guard.keepalive()}
