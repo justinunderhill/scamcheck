@@ -492,6 +492,9 @@ body {
   text-align: center;
 }
 .colophon p { margin: 0; font-size: 0.85rem; color: var(--ink-faint); max-width: 34rem; margin: 0 auto; }
+.colophon .colophon__credit { margin-top: 0.75rem; }
+.colophon__credit a { color: var(--brand); text-decoration: underline; text-underline-offset: 2px; }
+.colophon__credit a:hover { color: var(--brand-deep); }
 
 /* ---------- Animations ---------- */
 @keyframes fade-up {

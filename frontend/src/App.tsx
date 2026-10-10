@@ -67,6 +67,12 @@ export function App() {
             ScamCheck analyses links — it never visits them on your behalf.
             A “safe” result means no known threats were found, not a guarantee.
           </p>
+          <p className="colophon__credit">
+            I hope this helps someone —{" "}
+            <a href="https://www.justinunderhill.com/" target="_blank" rel="noopener noreferrer">
+              Justin Underhill
+            </a>
+          </p>
         </footer>
       </main>
     </div>
