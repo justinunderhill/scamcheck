@@ -172,6 +172,10 @@ async def analyze_message(message_text: str, final_url: str | None) -> list[Find
 
 def _parse_message_findings(raw: str) -> list[Finding]:
     data = _extract_json_array(raw)
+    if data is None:
+        # Unreadable output (e.g. cut off at the token cap) is "couldn't check",
+        # never "checked, clean": treating it as [] once hid real scam findings.
+        raise AIUnavailable("message analysis output was not a JSON array")
     findings: list[Finding] = []
     for item in data[:AI_MESSAGE_MAX_FINDINGS]:
         if not isinstance(item, dict):
@@ -196,22 +200,22 @@ def _parse_message_findings(raw: str) -> list[Finding]:
     return findings
 
 
-def _extract_json_array(raw: str) -> list:
+def _extract_json_array(raw: str) -> list | None:
+    """The JSON array in `raw`, tolerating stray prose around it; None if none."""
     raw = raw.strip()
     try:
         parsed = json.loads(raw)
-        return parsed if isinstance(parsed, list) else []
+        return parsed if isinstance(parsed, list) else None
     except json.JSONDecodeError:
         pass
-    # Be tolerant of stray prose around the array.
     start, end = raw.find("["), raw.rfind("]")
     if 0 <= start < end:
         try:
             parsed = json.loads(raw[start : end + 1])
-            return parsed if isinstance(parsed, list) else []
+            return parsed if isinstance(parsed, list) else None
         except json.JSONDecodeError:
-            return []
-    return []
+            return None
+    return None
 
 
 async def read_screenshot(image_b64: str, media_type: str) -> tuple[str | None, str | None]:

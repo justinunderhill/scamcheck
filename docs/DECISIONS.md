@@ -260,6 +260,25 @@ call, capped per IP per day (`SCREENSHOT_READS_PER_DAY`) and drawing on the glob
 daily AI budget, which fails closed. A read normally leads into a check, and that
 check still counts toward the free daily limit.
 
+### 2026-10-10 — Message analysis moves to Sonnet 5.5; unreadable output is "unchecked"
+**Decision:** `AI_ANALYSIS_MODEL` `claude-sonnet-4-6` → `claude-sonnet-5-5`, with
+`AI_ANALYSIS_MAX_TOKENS` 400 → 1000. Analysis output that isn't a readable JSON
+array now raises `AIUnavailable` (the user sees "we couldn't check the message")
+instead of being treated as an empty, clean result.
+**Measured (real prompt, 7 scams + 5 genuine SA messages):** Sonnet 5.5 caught 7/7
+scams with ≥2 high findings in two runs, and stayed silent on a real one-time PIN,
+delivery update, sale promo and friend's message. Mean latency 3.4s vs 5.3s on
+Sonnet 4.6. One behaviour change: a genuine bank purchase alert ("Not you? Call
+087…") got a medium "asks you to call a number" + a low finding (Sonnet 4.6: none).
+We accept this: fake purchase alerts with a callback number are a common vishing
+scam, the advice ("use the number on your card or the app") is right either way,
+and it lands at "suspicious", not "dangerous".
+**The bug this exposed:** The first run used the old 400-token cap, and Sonnet 5.5,
+which formats JSON more roomily, was cut off mid-array on 2 of 7 scams. The
+parser turned the truncated text into `[]`, so the result read as "checked,
+nothing found". That was a latent failure for any model: an unreadable reply now
+means "couldn't check", never "clean".
+
 ## Template
 
 ### [DATE] — Title

@@ -130,9 +130,26 @@ async def test_analyze_message_raises_on_ai_failure(monkeypatch):
         await ai.analyze_message("something", "https://x.example")
 
 
-async def test_analyze_message_garbage_output_is_empty(monkeypatch):
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "I could not analyze this.",
+        # Cut off at the token cap mid-array: must not read as "nothing found".
+        '[\n  {\n    "severity": "high",\n    "title": "Link doesn\'t match real SARS",\n    "detail": "The',
+    ],
+)
+async def test_analyze_message_unreadable_output_is_unavailable(monkeypatch, raw):
     async def fake_complete(**_kwargs):
-        return "I could not analyze this."
+        return raw
+
+    monkeypatch.setattr(ai, "complete", fake_complete)
+    with pytest.raises(AIUnavailable):
+        await ai.analyze_message("something", "https://x.example")
+
+
+async def test_analyze_message_empty_array_is_clean(monkeypatch):
+    async def fake_complete(**_kwargs):
+        return "[]"
 
     monkeypatch.setattr(ai, "complete", fake_complete)
     assert await ai.analyze_message("something", "https://x.example") == []

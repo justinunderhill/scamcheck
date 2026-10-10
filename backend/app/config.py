@@ -235,11 +235,13 @@ AI_EXPLAIN_MODEL = "claude-haiku-4-5-20251001"
 AI_EXPLAIN_MAX_TOKENS = 400
 # Stronger model reserved for message analysis (and v2 page analysis). Sonnet is
 # kept for its false-positive discrimination (a measured win over Haiku on
-# legitimate-but-urgent messages — see docs/DECISIONS.md 2026-06-06). The latency
-# cost is its output volume, so the prompt asks for terse findings and the token
-# ceiling is tight; that ~halves the call without changing the model.
-AI_ANALYSIS_MODEL = "claude-sonnet-4-6"
-AI_ANALYSIS_MAX_TOKENS = 400
+# legitimate-but-urgent messages — see docs/DECISIONS.md 2026-06-06). Moved to
+# Sonnet 5.5 on 2026-10-10 after a 7-scam / 5-genuine comparison (DECISIONS.md).
+# The prompt still asks for terse findings, but Sonnet 5.5 formats its JSON more
+# roomily: at 400 tokens real scam findings were cut off mid-array. The cap is a
+# ceiling, not a target, so 1000 doesn't slow a normal reply.
+AI_ANALYSIS_MODEL = "claude-sonnet-5-5"
+AI_ANALYSIS_MAX_TOKENS = 1000
 # Network timeout for any single AI call. Message analysis on Sonnet was seen
 # taking ~11s in prod, so 12s caused needless fallbacks; 25s leaves headroom.
 AI_REQUEST_TIMEOUT_SECONDS = 25.0
