@@ -4,6 +4,8 @@ Run with:  uvicorn app.main:app --reload --port 8000
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,6 +14,12 @@ from app.routes import analytics_router, check_router, report_router
 from app.services.limits import guard
 
 settings = get_settings()
+
+# httpx logs every request URL at INFO — including API keys in query strings
+# (Web Risk) and the full user-submitted URL being checked. Neither may reach
+# persistent logs (CLAUDE.md), so keep httpx/httpcore to warnings only.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 app = FastAPI(
     title="ScamCheck API",

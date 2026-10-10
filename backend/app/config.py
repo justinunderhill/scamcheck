@@ -24,6 +24,10 @@ class Settings(BaseSettings):
         env_file=("../.env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        # Secrets pasted into a dashboard often carry a trailing newline. In a
+        # query param it's tolerated, but in a header (x-api-key) it makes the
+        # request unbuildable — the AI layer silently failed this way in prod.
+        str_strip_whitespace=True,
     )
 
     # --- Secrets (backend only; never sent to the frontend) ---
