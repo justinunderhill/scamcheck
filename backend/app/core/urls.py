@@ -35,7 +35,8 @@ _EMAIL_RE = re.compile(r"^[^\s@/:?#]+@[^\s@/:?#]+\.[^\s@/:?#]+$")
 
 # Offline extractor: use the bundled public-suffix snapshot, never fetch from
 # the network (keeps tests/CI hermetic). Refresh the snapshot via a dep bump.
-_extract = tldextract.TLDExtract(suffix_list_urls=())
+# No disk cache: the serverless filesystem is read-only (it only logged a warning).
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 
 class InvalidURLError(ValueError):

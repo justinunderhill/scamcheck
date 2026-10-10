@@ -5,7 +5,11 @@ Isolated here so the rest of the AI layer (and tests) depend on one small
 """
 from __future__ import annotations
 
+import logging
+
 from app.config import AI_REQUEST_TIMEOUT_SECONDS, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class AIUnavailable(Exception):
@@ -36,6 +40,10 @@ async def complete(*, model: str, system: str, user: str, max_tokens: int) -> st
             messages=[{"role": "user", "content": user}],
         )
     except Exception as exc:  # noqa: BLE001 - SDK raises many types; all -> fallback
+        # Log the failure reason so a silent fallback is diagnosable. SDK error
+        # text carries status/type/request-id only — never the key, the user's
+        # message or URL (we don't include the exception's request body).
+        logger.warning("AI call failed (model=%s): %s: %.300s", model, type(exc).__name__, exc)
         raise AIUnavailable(f"{type(exc).__name__}: {exc}") from exc
 
     parts = [block.text for block in message.content if getattr(block, "type", None) == "text"]
