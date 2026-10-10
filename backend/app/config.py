@@ -226,8 +226,12 @@ AI_EXPLAIN_MAX_TOKENS = 400
 # ceiling is tight; that ~halves the call without changing the model.
 AI_ANALYSIS_MODEL = "claude-sonnet-4-6"
 AI_ANALYSIS_MAX_TOKENS = 400
-# Network timeout for any single AI call.
-AI_REQUEST_TIMEOUT_SECONDS = 12.0
+# Network timeout for any single AI call. Message analysis on Sonnet was seen
+# taking ~11s in prod, so 12s caused needless fallbacks; 25s leaves headroom.
+AI_REQUEST_TIMEOUT_SECONDS = 25.0
+# SDK retries per AI call (SDK default is 2). Kept at 1 so a slow API can't
+# stretch one check past ~2x the timeout before we fall back.
+AI_MAX_RETRIES = 1
 # explain() outputs are cached on a hash of (verdict, findings) so identical
 # results don't re-bill (see docs/PRICING.md cost control).
 AI_EXPLAIN_CACHE_SIZE = 512

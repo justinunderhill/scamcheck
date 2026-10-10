@@ -13,6 +13,8 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CheckResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Whether the in-flight check includes a pasted message (adds the slow AI step).
+  const [checkingMessage, setCheckingMessage] = useState(false);
   // Bumping the key remounts UrlInput, clearing the link and message fields.
   const [formKey, setFormKey] = useState(0);
   const resultRef = useRef<HTMLElement>(null);
@@ -24,6 +26,7 @@ export function App() {
 
   async function handleCheck(url: string, message?: string) {
     setLoading(true);
+    setCheckingMessage(Boolean(message?.trim()));
     setError(null);
     setResult(null);
     try {
@@ -85,7 +88,7 @@ export function App() {
           </div>
         )}
 
-        {loading && <CheckingState />}
+        {loading && <CheckingState hasMessage={checkingMessage} />}
 
         {!loading && result && (
           <section className="result" ref={resultRef} key={result.input_url + result.score}>

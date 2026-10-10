@@ -219,6 +219,19 @@ prompt-hardening + a re-run of this comparison to confirm the false positives
 are gone — not a blind switch. Streaming the verdict first (perceived latency)
 stays available as a non-model option.
 
+### 2026-10-10 — Raise the AI timeout to 25s, cap SDK retries at 1
+**Decision:** `AI_REQUEST_TIMEOUT_SECONDS` 12 → 25, and `AI_MAX_RETRIES = 1`
+(the Anthropic SDK default is 2).
+**Why:** A live scam-message check in prod took ~11s end to end, just under the
+12s ceiling. A slightly slow API response would then drop message analysis, the
+one source that catches scams on brand-new URLs, and show the "we couldn't check
+your message" fallback. Vercel functions allow 300s and the frontend sets no
+request cutoff, so the 12s limit was the binding constraint.
+**Consequences:** Fewer needless AI fallbacks. Worst-case wait on a struggling
+API grows to about 2 × 25s before falling back. Capping retries keeps it from
+reaching ~75s at the SDK default. The checking screen keeps showing progress
+during long waits so the user knows it's still working.
+
 ## Template
 
 ### [DATE] — Title

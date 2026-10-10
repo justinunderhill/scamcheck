@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-from app.config import AI_REQUEST_TIMEOUT_SECONDS, get_settings
+from app.config import AI_MAX_RETRIES, AI_REQUEST_TIMEOUT_SECONDS, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ async def complete(*, model: str, system: str, user: str, max_tokens: int) -> st
         client = AsyncAnthropic(
             api_key=settings.anthropic_api_key,
             timeout=AI_REQUEST_TIMEOUT_SECONDS,
+            max_retries=AI_MAX_RETRIES,
         )
         message = await client.messages.create(
             model=model,
